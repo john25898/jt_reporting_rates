@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,7 @@ from urllib3.util.retry import Retry
 import config
 
 _lock = threading.Lock()
+_write_lock = threading.Lock()
 _session = None
 
 
@@ -72,10 +74,21 @@ def _read_json(path):
 
 def _write_json(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=1)
-    os.replace(tmp, path)
+    # Serialize writes within this process (Windows locks the dest during
+    # os.replace; on Linux the same tmp name across gunicorn workers caused
+    # FileNotFoundError when a concurrent worker already moved it).
+    with _write_lock:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(obj, f, indent=1)
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
 
 def resolve_moh_dataset_ids(force=False):
