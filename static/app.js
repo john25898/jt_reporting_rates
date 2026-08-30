@@ -13,6 +13,7 @@ const state = {
     facility_id: null,
   },
   data: null,
+  metrics: null, // /api/metrics-summary payload (per-MOH metric cards)
   sort: { key: "rate", dir: -1 }, // per-MOH table sort
 };
 
@@ -396,6 +397,31 @@ async function loadRates() {
     $("loading").classList.add("hidden");
     showError(`Failed to load reporting rates: ${err.message}`);
   }
+  loadMetrics();
+}
+
+/* Per-MOH metric reporting cards (tracked 2023-version metrics only) */
+async function loadMetrics() {
+  const p = new URLSearchParams({ period: state.period, cb: Date.now() });
+  const s = state.scope;
+  if (s.county_id) p.set("county_id", s.county_id);
+  if (s.subcounty_id) p.set("subcounty_id", s.subcounty_id);
+  if (s.ward_id) p.set("ward_id", s.ward_id);
+  if (s.facility_id) p.set("facility_id", s.facility_id);
+
+  try {
+    const res = await fetch(`/api/metrics-summary?${p.toString()}`);
+    state.metrics = await res.json();
+    const byKey = {};
+    (state.metrics.forms || []).forEach((f) => {
+      byKey[f.key] = f;
+    });
+    ["moh643", "moh729", "moh730"].forEach((k) =>
+      renderMetricCards(k, byKey[k]),
+    );
+  } catch (err) {
+    // cards stay as placeholders; rates already rendered
+  }
 }
 
 function renderAll() {
@@ -484,8 +510,10 @@ function renderMhoSection(key, form) {
       <div class="card stat-card"><div class="stat-label">Facilities reported</div><div class="stat-value">${s.facilities_reported} / ${s.facilities_with_expected}</div></div>
       <div class="card stat-card accent"><div class="stat-label">Reporting rate</div><div class="stat-value ${rate == null ? "muted" : rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad"}">${rate == null ? "—" : rate.toFixed(1) + "%"}</div></div>
     </div>
+    <div class="metric-cards-holder"></div>
     <div class="card">
       <h3>${form.title} — Facility detail <span class="muted small">(${fmtMonth(state.period)} period)</span></h3>
+      <p class="muted small hint">Click any facility row to open its per-metric reporting page.</p>
       <table class="rate-table">
         <thead><tr>
           <th data-sort="facility_name">Facility</th>
@@ -509,11 +537,16 @@ function renderMhoSection(key, form) {
       return;
     }
     const tr = ev.target.closest("tr.frow");
-    if (tr) openFacilityForm(key, form, tr.dataset.fid);
+    if (tr) openFacilityPage(key, form, tr.dataset.fid);
   });
 
   state.sort = { key: "rate", dir: -1 };
   renderMhoRows(key, form);
+  const mf =
+    state.metrics && state.metrics.forms
+      ? state.metrics.forms.find((f) => f.key === key)
+      : null;
+  if (mf) renderMetricCards(key, mf);
 }
 
 function renderMhoRows(key, form) {
@@ -575,7 +608,7 @@ function toggleSort(key, sortKey, form) {
   renderMhoRows(key, form);
 }
 
-/* ---------------- Facility form drill-down ---------------- */
+/* ---------------- Facility page + per-MOH metric cards ---------------- */
 
 function escapeHtml(s) {
   return String(s ?? "").replace(
@@ -592,81 +625,59 @@ function formatNum(v) {
   return String(v ?? "\u2014");
 }
 
-function openFacilityForm(key, form, fid) {
-  const fac = (form.facilities || []).find((x) => x.facility_id === fid);
-  const modal = $("form-modal");
-  modal.classList.remove("hidden");
-  const body = $("form-modal-body");
-  body.innerHTML = `
-    <div class="modal-head">
-      <div>
-        <h3>${escapeHtml(fac ? fac.facility_name : fid)}</h3>
-        <p class="muted small modal-sub">${escapeHtml(form.title)} \u00b7 ${fmtMonth(state.period)} period
-          ${fac ? ` \u00b7 ${escapeHtml(fac.county_name)} \u00b7 ${escapeHtml(fac.subcounty_name)} \u00b7 ${escapeHtml(fac.ward_name)}` : ""}</p>
-      </div>
-      <button class="modal-close" aria-label="Close">\u00d7</button>
-    </div>
-    <div class="modal-loading">Loading form values from KHIS\u2026</div>`;
-  modal
-    .querySelector(".modal-close")
-    .addEventListener("click", closeFacilityForm);
-  fetch(
-    `/api/facility-form?form=${key}&period=${state.period}&facility_id=${fid}&cb=${Date.now()}`,
-  )
-    .then((r) => r.json())
-    .then((d) => renderFacilityForm(d, fac))
-    .catch((err) => {
-      const l = body.querySelector(".modal-loading");
-      if (l)
-        l.outerHTML = `<p class="muted">Failed to load: ${escapeHtml(err.message)}</p>`;
-    });
+/* Clicking a facility row opens a dedicated page showing how many of each
+   metric per dataset were reported for that facility + month. */
+function openFacilityPage(key, form, fid) {
+  const url = `/facility?facility_id=${encodeURIComponent(fid)}&period=${state.period}`;
+  window.open(url, "_blank");
 }
 
-function renderFacilityForm(d, fac) {
-  const body = $("form-modal-body");
-  const loading = body.querySelector(".modal-loading");
-  if (!d || d.error) {
-    if (loading) {
-      loading.outerHTML = `<p class="muted">${escapeHtml((d && d.error) || "Failed to load form values.")}</p>`;
-    }
+/* "More cards per MOH tab" — metrics reporting for the tracked 2023 version:
+   tracked metrics, facilities reporting, overall metric rate + per-metric
+   coverage table. */
+function renderMetricCards(key, mf) {
+  const panel = $(`tab-${key}`);
+  const holder = panel && panel.querySelector(".metric-cards-holder");
+  if (!holder) return;
+  if (!mf) {
+    holder.innerHTML =
+      '<div class="card"><p class="muted">Metric reporting unavailable for this form.</p></div>';
     return;
   }
-  const reported = fac ? fac.reported : d.n_metrics > 0;
-  const groupsHtml = d.revision_groups
-    .map(
-      (g) => `
-      <div class="rev-group">
-        <h4 class="rev-title">${escapeHtml(g.label)} <span class="muted small">(${g.metrics.length} metric${g.metrics.length === 1 ? "" : "s"})</span></h4>
-        <table class="metric-table">
-          <tbody>
-            ${g.metrics
-              .map(
-                (m) => `
-              <tr>
-                <td class="metric-name">${escapeHtml(m.name)}</td>
-                <td class="num metric-value">${formatNum(m.value)}${m.raw_count > 1 ? ` <span class="muted small">(\u03a3 ${m.raw_count})</span>` : ""}</td>
-              </tr>`,
-              )
-              .join("")}
-          </tbody>
-        </table>
-      </div>`,
-    )
+  const total = mf.total_metrics;
+  const rate = mf.overall_metric_rate;
+  const rows = (mf.metrics || [])
+    .map((m) => {
+      const pct = m.total ? Math.round((100 * m.reported) / m.total) : 0;
+      const cls = pct >= 80 ? "bar-good" : pct >= 50 ? "bar-warn" : "bar-bad";
+      return `<tr>
+        <td class="metric-name">${escapeHtml(m.name)}</td>
+        <td class="num">${m.reported} / ${m.total}</td>
+        <td class="num">${pct}%</td>
+        <td><div class="cov-bar"><div class="cov-fill ${cls}" style="width:${pct}%"></div></div></td>
+      </tr>`;
+    })
     .join("");
-  const html = `
-    ${reported ? "" : `<div class="modal-note">This facility has no submitted values for ${fmtMonth(d.period)} \u2014 counted as <b>not reported</b>.</div>`}
-    <div class="modal-meta">
-      <span>Dataset: <b>${escapeHtml(d.dataset_name || "")}</b></span>
-      <span>Metrics with values: <b>${d.n_metrics}</b></span>
-    </div>
-    ${groupsHtml}
-    ${d.n_metrics ? '<p class="muted small">Values are summed across disaggregations (category option combos) for the selected month.</p>' : '<p class="muted">No data values returned by KHIS for this period.</p>'}`;
-  if (loading) loading.outerHTML = html;
-  else body.insertAdjacentHTML("beforeend", html);
-}
-
-function closeFacilityForm() {
-  $("form-modal").classList.add("hidden");
+  holder.innerHTML = `
+    <div class="card metric-block">
+      <div class="metric-head">
+        <h3>Metrics reporting <span class="version-badge">v${escapeHtml(mf.version || "")}</span></h3>
+        <span class="muted small">Only metrics belonging to the ${escapeHtml(mf.version || "")} version of this form are tracked — older/newer elements are ignored.</span>
+      </div>
+      <div class="cards-grid">
+        <div class="card stat-card"><div class="stat-label">Tracked metrics</div><div class="stat-value">${total}</div></div>
+        <div class="card stat-card"><div class="stat-label">Facilities reporting ≥1 metric</div><div class="stat-value">${mf.any_reported} / ${mf.facilities}</div></div>
+        <div class="card stat-card accent"><div class="stat-label">Metric reporting rate</div><div class="stat-value ${rate == null ? "muted" : rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad"}">${rate == null ? "—" : rate.toFixed(1) + "%"}</div></div>
+        <div class="card stat-card"><div class="stat-label">Reported facility-metrics</div><div class="stat-value">${mf.reported_facility_metrics}</div></div>
+      </div>
+      <details class="metric-coverage" open>
+        <summary>Per-metric coverage <span class="muted small">(${(mf.metrics || []).length} metrics)</span></summary>
+        <table class="metric-table coverage-table">
+          <thead><tr><th>Metric</th><th class="num">Facilities reported</th><th class="num">Coverage</th><th>Bar</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>
+    </div>`;
 }
 
 /* ---------------- Tabs & misc ---------------- */
@@ -700,12 +711,6 @@ document.addEventListener("DOMContentLoaded", () => {
     loadRates();
   });
   $("refresh-btn").addEventListener("click", () => loadRates());
-  $("form-modal").addEventListener("click", (ev) => {
-    if (ev.target === $("form-modal")) closeFacilityForm();
-  });
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") closeFacilityForm();
-  });
   $("tabs-nav").addEventListener("click", (ev) => {
     const btn = ev.target.closest(".tab");
     if (btn) switchTab(btn.dataset.tab);

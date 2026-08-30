@@ -77,6 +77,14 @@ def _months(start_ym, end_ym):
 PERIODS = _months("202501", "202608")
 DEFAULT_PERIOD = "202607"
 
+# ---- The only dataset versions tracked -----------------------------------
+# The JT app tracks exactly these three form versions:
+#   MOH 643 B - 2023 · MOH 729 - 2023 · MOH 730 B - 2023
+# KHIS element names embed revision years (e.g. 'Rev 2023', 'Revision 2017',
+# 'Rev 2026'); only metrics belonging to this target revision are tracked —
+# older/newer elements carried inside the same dataset are ignored.
+TARGET_REVISION = "2023"
+
 # ---- KHIS request behaviour ----------------------------------------------
 KHIS_TIMEOUT = 150
 KHIS_RETRIES = 2

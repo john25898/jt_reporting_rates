@@ -271,16 +271,20 @@ def _clean_metric_name(name):
     return name or "?"
 
 
-def fetch_facility_form_values(ds_id, period, ou_id):
+def fetch_facility_form_values(ds_id, period, ou_id, target_revision=config.TARGET_REVISION):
     """Exact submitted form values for ONE facility + dataset + month.
 
-    Each data element's values are summed across category-option combos
-    (disaggregations) so the metric shows its true monthly total, and metrics
-    are grouped by the exact dataset revision embedded in their names
-    (e.g. 'Rev 2023' vs 'Revision 2017' vs 'Rev 2026') so versions never mix.
-    Disk-cached 12h.
+    ONLY metrics belonging to the target revision (e.g. '2023') are tracked —
+    older/newer elements carried inside the same dataset (e.g. 'Revision 2017',
+    'Rev 2026') are ignored so the version stays exact. Each tracked metric's
+    value is summed across category-option combos (disaggregations) so it shows
+    the true monthly total; metrics with no submitted value are listed as
+    unreported. Disk-cached 12h.
     """
-    path = os.path.join(config.VALUES_CACHE_DIR, f"{ds_id}_{period}_{ou_id}.json")
+    path = os.path.join(
+        config.VALUES_CACHE_DIR,
+        f"{ds_id}_{period}_{ou_id}_r{target_revision}.json",
+    )
     if _cache_valid(path):
         cached = _read_json(path)
         if cached is not None:
@@ -310,37 +314,81 @@ def fetch_facility_form_values(ds_id, period, ou_id):
         elif t[2] is None:
             t[2] = raw
 
-    groups = {}
-    for de_id, (total, raw_count, text_val) in totals.items():
-        el = elements.get(de_id, {})
-        name = el.get("name", de_id)
-        version = _revision_of(name)
-        value = text_val if text_val is not None else total
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
-        groups.setdefault(version, []).append({
-            "id": de_id,
-            "name": _clean_metric_name(name),
-            "value": value,
-            "raw_count": raw_count,
-        })
+    # Only the target revision's data elements are tracked
+    target_elements = [
+        {"id": de_id, "name": el.get("name", de_id)}
+        for de_id, el in elements.items()
+        if _revision_of(el.get("name", "")) == target_revision
+    ]
+    target_elements.sort(key=lambda e: e["name"].lower())
 
-    rev_groups = []
-    for version, metrics in groups.items():
-        metrics.sort(key=lambda m: m["name"].lower())
-        rev_groups.append({
-            "version": version or "unknown",
-            "label": f"Revision {version}" if version else "Other",
-            "metrics": metrics,
-        })
-    rev_groups.sort(key=lambda g: g["version"])
+    metrics = []
+    unreported = []
+    for el in target_elements:
+        de_id = el["id"]
+        t = totals.get(de_id)
+        if t is not None:
+            total, raw_count, text_val = t
+            value = text_val if text_val is not None else total
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            metrics.append({
+                "id": de_id,
+                "name": _clean_metric_name(el["name"]),
+                "value": value,
+                "raw_count": raw_count,
+                "reported": True,
+            })
+        else:
+            unreported.append(_clean_metric_name(el["name"]))
+            metrics.append({
+                "id": de_id,
+                "name": _clean_metric_name(el["name"]),
+                "value": None,
+                "raw_count": 0,
+                "reported": False,
+            })
 
+    reported_metrics = len(metrics) - len(unreported)
     result = {
         "dataset_name": (ds or {}).get("name", ds_id),
-        "n_metrics": sum(len(g["metrics"]) for g in rev_groups),
-        "revision_groups": rev_groups,
+        "version": target_revision,
+        "total_metrics": len(target_elements),
+        "reported_metrics": reported_metrics,
+        "unreported_metrics": unreported,
+        "metrics": metrics,
+        "revision_groups": [{
+            "version": target_revision,
+            "label": f"Revision {target_revision}",
+            "metrics": [m for m in metrics if m["reported"]],
+        }] if reported_metrics else [],
+        "n_metrics": reported_metrics,
     }
     _write_json(path, result)
+    return result
+
+
+def fetch_metric_reporting(ds_id, period, ou_ids, target_revision=config.TARGET_REVISION):
+    """Per-facility count of reported metrics for a dataset (parallel).
+
+    Reuses the 12h form-values cache per facility, so repeated calls are
+    cheap. Returns {ou_id: {"reported": int, "total": int}}.
+    """
+    ou_ids = list(dict.fromkeys(ou_ids))
+    if not ou_ids or not ds_id:
+        return {}
+
+    def _count(uid):
+        fv = fetch_facility_form_values(ds_id, period, uid, target_revision)
+        return uid, {
+            "reported": fv.get("reported_metrics", 0),
+            "total": fv.get("total_metrics", 0),
+        }
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=min(10, len(ou_ids))) as ex:
+        for uid, cnt in ex.map(_count, ou_ids):
+            result[uid] = cnt
     return result
 
 

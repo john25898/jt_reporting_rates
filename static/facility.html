@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Facility — Metric Reporting | Jamii Tekelezi</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand">
+          <span class="brand-mark">JT</span>
+          <div>
+            <h1 id="fac-title">Facility Metric Reporting</h1>
+            <p class="subtitle" id="fac-sub">Loading…</p>
+          </div>
+        </div>
+        <div id="status-banner" class="status-banner hidden"></div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <span>Fetching metric reporting from KHIS…</span>
+      </div>
+      <section id="facility-body"></section>
+    </main>
+
+    <footer class="app-footer">
+      Jamii Tekelezi Reporting Rates — per-metric facility reporting · Version
+      2023 metrics only
+    </footer>
+
+    <script src="facility.js"></script>
+  </body>
+</html>

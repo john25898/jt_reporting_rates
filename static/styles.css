@@ -448,7 +448,7 @@ h3 {
   padding: 20px 0 30px;
 }
 
-/* clickable facility rows (open drill-down) */
+/* clickable facility rows (open facility metric-reporting page) */
 tr.frow {
   cursor: pointer;
 }
@@ -456,91 +456,6 @@ tr.frow:hover td {
   background: #eff6ff;
 }
 
-/* facility form drill-down modal */
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  z-index: 50;
-  overflow: auto;
-}
-.modal-panel {
-  background: #fff;
-  border-radius: 12px;
-  max-width: 780px;
-  width: 100%;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
-}
-#form-modal-body {
-  padding: 18px 20px 22px;
-}
-.modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.modal-head h3 {
-  margin: 0 0 4px;
-}
-.modal-sub {
-  margin: 0;
-  line-height: 1.5;
-}
-.modal-close {
-  background: var(--border);
-  border: none;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.modal-close:hover {
-  background: #cbd5e1;
-  color: var(--text);
-}
-.modal-loading {
-  color: var(--muted);
-  padding: 12px 0;
-}
-.modal-note {
-  background: #fef3c7;
-  border: 1px solid #fde68a;
-  color: #92400e;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.modal-meta {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.rev-group {
-  margin-bottom: 14px;
-}
-.rev-title {
-  margin: 0 0 6px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--blue-dark);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-}
 .metric-table {
   width: 100%;
   border-collapse: collapse;
@@ -558,4 +473,147 @@ tr.frow:hover td {
   font-weight: 600;
   white-space: nowrap;
   text-align: right;
+}
+
+/* ---------------- Per-MOH metric reporting cards ---------------- */
+
+.metric-cards-holder {
+  margin: 12px 0 4px;
+}
+.metric-block {
+  border-top: 3px solid var(--blue);
+}
+.metric-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.metric-head h3 {
+  margin: 0;
+}
+.version-badge {
+  display: inline-block;
+  background: var(--blue-dark);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.metric-coverage {
+  margin-top: 12px;
+}
+.metric-coverage summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.coverage-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 2px solid var(--border);
+  padding: 6px 8px;
+}
+.coverage-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.cov-bar {
+  width: 120px;
+  display: inline-block;
+  vertical-align: middle;
+  background: var(--border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+.cov-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--teal);
+}
+.bar-good {
+  background: var(--green);
+}
+.bar-warn {
+  background: #d97706;
+}
+.bar-bad {
+  background: var(--red);
+}
+.hint {
+  margin: 0 0 8px;
+}
+
+/* ---------------- Facility metric-reporting page ---------------- */
+
+.fac-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.fac-hero h2 {
+  margin: 0 0 4px;
+}
+.fac-hero .btn {
+  white-space: nowrap;
+}
+.form-metric-card {
+  margin-top: 14px;
+  border-top: 3px solid var(--teal);
+}
+.form-metric-card.focused {
+  box-shadow: 0 0 0 3px rgba(11, 95, 165, 0.35);
+}
+.fhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.fhead h3 {
+  margin: 0 0 2px;
+}
+.fstats {
+  text-align: right;
+  min-width: 140px;
+}
+.fmetric-count {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.metric-table tr.metric-miss td {
+  background: #fffbf5;
+}
+.metric-unreported {
+  color: var(--amber);
+  font-weight: 600;
+}
+.metric-value.ok {
+  color: var(--green);
+}
+.pill.warn-pill {
+  background: #fef3c7;
+  color: var(--amber);
 }

@@ -102,6 +102,75 @@ def _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id):
     return [h["facility_lookup"][fid] for fid in fids if fid in h["facility_lookup"]]
 
 
+def _form_title(key):
+    return next((f["title"] for f in config.MOH_FORMS if f["key"] == key), key)
+
+
+def _metrics_summary_for_scope(facility_rows, period):
+    """Per-form metric reporting summary across a facility scope.
+
+    For every form, counts how many of the tracked (2023-version) metrics
+    were reported by each facility, and aggregates:
+      total_metrics       — number of tracked metrics in the form version
+      facilities          — facilities in scope
+      any_reported        — facilities that reported at least one metric
+      reported_facility_metrics — sum over facilities of reported metrics
+      overall_metric_rate — reported / (facilities * total_metrics)
+      metrics             — per-metric coverage {name, id, reported, total}
+    """
+    datasets = khis_client.resolve_moh_dataset_ids()
+    facility_ids = [r["facility_id"] for r in facility_rows]
+    forms = []
+    for form in config.MOH_FORMS:
+        ds = datasets.get(form["key"])
+        if not ds or not facility_ids:
+            forms.append({
+                "key": form["key"], "title": form["title"],
+                "version": config.TARGET_REVISION,
+                "dataset_id": ds["id"] if ds else None,
+                "total_metrics": 0, "facilities": len(facility_rows),
+                "any_reported": 0, "reported_facility_metrics": 0,
+                "overall_metric_rate": None, "metrics": [],
+                "error": "dataset unresolved" if not ds else None,
+            })
+            continue
+        counts = khis_client.fetch_metric_reporting(
+            ds["id"], period, facility_ids, config.TARGET_REVISION)
+        if not counts:
+            forms.append({
+                "key": form["key"], "title": form["title"],
+                "version": config.TARGET_REVISION,
+                "dataset_id": ds["id"], "total_metrics": 0,
+                "facilities": len(facility_rows), "any_reported": 0,
+                "reported_facility_metrics": 0, "overall_metric_rate": None,
+                "metrics": [], "error": "no data",
+            })
+            continue
+        total = next(iter(counts.values()))["total"]
+        any_reported = sum(1 for c in counts.values() if c["reported"] > 0)
+        reported_metrics = sum(c["reported"] for c in counts.values())
+        per_metric = {}
+        for f_row in facility_rows:
+            fv = khis_client.fetch_facility_form_values(
+                ds["id"], period, f_row["facility_id"], config.TARGET_REVISION)
+            for m in fv.get("metrics") or []:
+                pm = per_metric.setdefault(m["name"], {"name": m["name"], "id": m["id"], "reported": 0, "total": 0})
+                pm["total"] += 1
+                if m["reported"]:
+                    pm["reported"] += 1
+        metric_rows = sorted(per_metric.values(), key=lambda m: (m["reported"] / m["total"] if m["total"] else 0, m["name"]))
+        forms.append({
+            "key": form["key"], "title": form["title"],
+            "version": config.TARGET_REVISION,
+            "dataset_id": ds["id"], "total_metrics": total,
+            "facilities": len(facility_rows), "any_reported": any_reported,
+            "reported_facility_metrics": reported_metrics,
+            "overall_metric_rate": round(100.0 * reported_metrics / (total * len(facility_rows)), 1) if total and facility_rows else None,
+            "metrics": metric_rows,
+        })
+    return forms
+
+
 # --------------------------------------------------------------------------
 # Routes
 # --------------------------------------------------------------------------
@@ -241,10 +310,12 @@ def facility_form():
     if not ds:
         return jsonify({"error": "dataset not resolved"}), 502
 
-    values = khis_client.fetch_facility_form_values(ds["id"], period, facility_id)
+    values = khis_client.fetch_facility_form_values(
+        ds["id"], period, facility_id, config.TARGET_REVISION)
     return jsonify({
         "form": form_key,
-        "title": next((f["title"] for f in config.MOH_FORMS if f["key"] == form_key), form_key),
+        "title": _form_title(form_key),
+        "version": config.TARGET_REVISION,
         "period": period,
         "facility": {
             "id": row["facility_id"],
@@ -255,7 +326,98 @@ def facility_form():
         },
         "dataset_name": values.get("dataset_name"),
         "n_metrics": values.get("n_metrics", 0),
+        "total_metrics": values.get("total_metrics", 0),
+        "reported_metrics": values.get("reported_metrics", 0),
+        "unreported_metrics": values.get("unreported_metrics", []),
         "revision_groups": values.get("revision_groups", []),
+    })
+
+
+@app.get("/api/metrics-summary")
+def metrics_summary():
+    """Per-MOH metric reporting cards + per-metric coverage for the scope."""
+    period = request.args.get("period", config.DEFAULT_PERIOD)
+    county_id = request.args.get("county_id") or None
+    subcounty_id = request.args.get("subcounty_id") or None
+    ward_id = request.args.get("ward_id") or None
+    facility_id = request.args.get("facility_id") or None
+
+    rows = _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id)
+    forms = _metrics_summary_for_scope(rows, period)
+    return jsonify({
+        "period": period,
+        "version": config.TARGET_REVISION,
+        "scope": {
+            "county_id": county_id, "subcounty_id": subcounty_id,
+            "ward_id": ward_id, "facility_id": facility_id,
+            "facility_count": len(rows),
+        },
+        "forms": forms,
+    })
+
+
+@app.get("/facility")
+def facility_page():
+    """Full page: per-dataset metric reporting for one facility."""
+    return send_from_directory(app.static_folder, "facility.html")
+
+
+@app.get("/api/facility-metrics")
+def facility_metrics():
+    """Per-dataset metric reporting for ONE facility across all three forms.
+
+    Each form lists every tracked (2023-version) metric with its submitted
+    value (or 'not reported'), so you can see exactly how many of each metric
+    per dataset were reported for the facility + month.
+    """
+    period = request.args.get("period", config.DEFAULT_PERIOD)
+    facility_id = request.args.get("facility_id")
+    if not facility_id:
+        return jsonify({"error": "facility_id is required"}), 400
+
+    h = _load_hierarchy()
+    row = h["facility_lookup"].get(facility_id)
+    if not row:
+        return jsonify({"error": "unknown facility"}), 404
+
+    datasets = khis_client.resolve_moh_dataset_ids()
+    forms = []
+    for form in config.MOH_FORMS:
+        ds = datasets.get(form["key"])
+        if not ds:
+            forms.append({
+                "key": form["key"], "title": _form_title(form["key"]),
+                "version": config.TARGET_REVISION, "dataset_id": None,
+                "total_metrics": 0, "reported_metrics": 0,
+                "unreported_metrics": [], "metrics": [],
+                "error": "dataset unresolved",
+            })
+            continue
+        values = khis_client.fetch_facility_form_values(
+            ds["id"], period, facility_id, config.TARGET_REVISION)
+        forms.append({
+            "key": form["key"],
+            "title": _form_title(form["key"]),
+            "version": config.TARGET_REVISION,
+            "dataset_id": ds["id"],
+            "dataset_name": values.get("dataset_name"),
+            "total_metrics": values.get("total_metrics", 0),
+            "reported_metrics": values.get("reported_metrics", 0),
+            "unreported_metrics": values.get("unreported_metrics", []),
+            "metrics": values.get("metrics", []),
+        })
+
+    return jsonify({
+        "period": period,
+        "version": config.TARGET_REVISION,
+        "facility": {
+            "id": row["facility_id"],
+            "name": row["facility_name"],
+            "county_name": row["county_name"],
+            "subcounty_name": row["subcounty_name"],
+            "ward_name": row["ward_name"],
+        },
+        "forms": forms,
     })
 
 
