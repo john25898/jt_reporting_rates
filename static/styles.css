@@ -617,3 +617,192 @@ tr.frow:hover td {
   background: #fef3c7;
   color: var(--amber);
 }
+
+/* ---------------- Overview redesign: hero story ---------------- */
+
+.ov-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  border-left: 4px solid var(--blue);
+}
+.ov-hero-left {
+  flex: 1 1 380px;
+}
+.ov-hero-right {
+  flex: 1 1 300px;
+  min-width: 260px;
+}
+.ov-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.ov-hero-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ov-hero-main .big-rate {
+  font-size: 52px;
+  line-height: 1;
+}
+.ov-hero-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+.ov-hero-sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.ov-verdict {
+  font-size: 13px;
+  margin: 10px 0 0;
+  font-weight: 600;
+}
+.ov-hero-num {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.compliance-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border);
+  margin: 8px 0 6px;
+}
+.compliance-seg.seg-all {
+  background: var(--green);
+}
+.compliance-seg.seg-assigned {
+  background: var(--teal);
+}
+.compliance-seg.seg-part {
+  background: #d97706;
+}
+.compliance-seg.seg-none {
+  background: var(--red);
+}
+.compliance-legend,
+.cov-dist-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.dot-all {
+  background: var(--green);
+}
+.dot-assigned {
+  background: var(--teal);
+}
+.dot-part {
+  background: #d97706;
+}
+.dot-none {
+  background: var(--red);
+}
+.overview-card h3 {
+  margin: 4px 0 2px;
+  font-size: 13px;
+}
+.ov-form-badge {
+  display: inline-block;
+  background: var(--blue-dark);
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.ov-metric-line {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+/* metric narrative */
+.cov-dist {
+  margin: 14px 0 16px;
+}
+.cov-dist-bar {
+  display: flex;
+  height: 16px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border);
+}
+.cov-dist-seg.d-green {
+  background: var(--green);
+}
+.cov-dist-seg.d-amber {
+  background: #d97706;
+}
+.cov-dist-seg.d-red {
+  background: var(--red);
+}
+.metric-rank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 18px;
+}
+.rank-col h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.form-tag {
+  display: inline-block;
+  background: #e0f2fe;
+  color: var(--blue-dark);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 1px 7px;
+}
+
+/* county matrix */
+.county-table td {
+  padding: 8px;
+}
+.county-row {
+  cursor: pointer;
+}
+.county-row:hover td {
+  background: #eff6ff;
+}
+.rate-chip {
+  display: inline-block;
+  min-width: 52px;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.chip-good {
+  background: #dcfce7;
+  color: var(--green);
+}
+.chip-warn {
+  background: #fef3c7;
+  color: var(--amber);
+}
+.chip-bad {
+  background: #fee2e2;
+  color: var(--red);
+}
