@@ -460,6 +460,33 @@ function renderOverview(d) {
   renderFacilityList(d);
 }
 
+/* SVG donut chart — mixed with the horizontal bars across the overview */
+function donutSvg(pct, opts = {}) {
+  const size = opts.size || 92;
+  const stroke = opts.stroke || 10;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const filled = pct == null ? 0 : Math.max(0, Math.min(100, pct));
+  const dash = (filled / 100) * c;
+  const gap = opts.gap != null ? opts.gap : Math.min(4, stroke);
+  const cls =
+    opts.cls ||
+    (pct == null ? "" : pct >= 80 ? "good" : pct >= 50 ? "warn" : "bad");
+  const label = opts.label || "";
+  const center = size / 2;
+  const pctTxt = pct == null ? "—" : filled.toFixed(0) + "%";
+  const pctSize = opts.pctSize || Math.round(size * 0.21);
+  const labelSize = opts.labelSize || Math.round(size * 0.105);
+  return `
+    <svg class="donut ${cls}" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${pctTxt}">
+      <circle class="donut-bg" cx="${center}" cy="${center}" r="${r}" fill="none" stroke-width="${stroke}"></circle>
+      <circle class="donut-fg" cx="${center}" cy="${center}" r="${r}" fill="none" stroke-width="${stroke}"
+        stroke-dasharray="${Math.max(dash - gap, 0)} ${c}" transform="rotate(-90 ${center} ${center})"></circle>
+      <text class="donut-pct" x="50%" y="50%" text-anchor="middle" dominant-baseline="central" dy="${label ? "-0.55em" : "0"}" style="font-size:${pctSize}px">${pctTxt}</text>
+      ${label ? `<text class="donut-label" x="50%" y="50%" text-anchor="middle" dominant-baseline="central" dy="1.4em" style="font-size:${labelSize}px">${escapeHtml(label)}</text>` : ""}
+    </svg>`;
+}
+
 /* Combined rate + "how many facilities did everything" story */
 function combinedRates(d) {
   let exp = 0,
@@ -540,6 +567,9 @@ function renderHero(d) {
       </div>
       <div class="ov-hero-right">
         <div class="ov-hero-title">Facilities completing ALL THREE forms</div>
+        <div class="ov-hero-all3">
+          ${donutSvg(cb.assignedAll3 ? (100 * cb.all3) / cb.assignedAll3 : null, { size: 96, stroke: 11, label: "all 3" })}
+          <div class="ov-hero-all3-body">
         <div class="ov-hero-num">${cb.all3} <span class="muted">/ ${cb.assignedAll3}</span></div>
         <div class="compliance-bar">
           <div class="compliance-seg seg-all" style="width:${pct(cb.all3)}%" title="All 3 forms"></div>
@@ -552,6 +582,8 @@ function renderHero(d) {
           <span><i class="dot dot-assigned"></i>All assigned ✓ (${cb.completeAssigned})</span>
           <span><i class="dot dot-part"></i>Partial (${cb.partial})</span>
           <span><i class="dot dot-none"></i>None (${cb.none})</span>
+        </div>
+          </div>
         </div>
       </div>
     </div>`;
@@ -574,10 +606,14 @@ function renderFormCards(d) {
       "beforeend",
       `
       <div class="card overview-card" data-tablink="${f.key}">
-        <span class="ov-form-badge">${badge}</span>
-        <h3>${f.title}</h3>
+        <div class="ov-card-top">
+          <div class="ov-card-head">
+            <span class="ov-form-badge">${badge}</span>
+            <h3>${f.title}</h3>
+          </div>
+          ${donutSvg(rate, { size: 88, stroke: 10, label: badge })}
+        </div>
         <div class="ov-desc">${info.short || ""}</div>
-        <div class="big-rate ${rate == null ? "muted" : rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad"}">${rate == null ? "—" : rate.toFixed(1) + "%"}</div>
         <div class="ov-stats">
           <span>${s.facilities_reported} / ${s.facilities_with_expected} facilities submitted</span>
           <span>Expected: ${s.expected_reports} · Actual: ${s.actual_reports}</span>
@@ -664,7 +700,7 @@ function renderMetricsStory() {
       <div class="cards-grid">
         <div class="card stat-card"><div class="stat-label">Tracked metrics (2023)</div><div class="stat-value">${story.tracked}</div></div>
         <div class="card stat-card"><div class="stat-label">Reported facility-metrics</div><div class="stat-value">${story.reported.toLocaleString()}</div></div>
-        <div class="card stat-card accent"><div class="stat-label">Overall metric reporting rate</div><div class="stat-value ${rate == null ? "muted" : rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad"}">${rate == null ? "—" : rate.toFixed(1) + "%"}</div></div>
+        <div class="card stat-card accent donut-card"><div class="stat-label">Overall metric reporting rate</div>${donutSvg(rate, { size: 108, stroke: 12, label: "facility-metrics" })}</div>
       </div>
 
       <div class="cov-dist">
@@ -728,7 +764,18 @@ function countyMatrix(d) {
       const expKeys = Object.values(b.byForm).filter((s) => s.expected);
       return expKeys.length >= 3 && expKeys.every((s) => s.reported);
     }).length;
-    return { name: c.name, nFac: c.facs.length, formRates, all3 };
+    let totExp = 0,
+      totAct = 0;
+    c.facs.forEach((b) => {
+      Object.values(b.byForm).forEach((s) => {
+        if (s.expected) {
+          totExp += 1;
+          if (s.reported) totAct += 1;
+        }
+      });
+    });
+    const combined = totExp ? (100 * totAct) / totExp : null;
+    return { name: c.name, nFac: c.facs.length, formRates, all3, combined };
   });
 }
 
@@ -747,6 +794,8 @@ function renderCountyMatrix(d) {
     .map(
       (r) => `
     <div class="county-viz-row" data-county="${escapeHtml(r.name)}">
+      <div class="cv-side">${donutSvg(r.combined, { size: 84, stroke: 10, label: "all forms" })}</div>
+      <div class="cv-main">
       <div class="cv-head">
         <span class="cv-name">${escapeHtml(r.name)}</span>
         <span class="cv-count muted">${r.nFac} facilities</span>
@@ -771,6 +820,7 @@ function renderCountyMatrix(d) {
       </div>`;
         })
         .join("")}
+      </div>
     </div>`,
     )
     .join("");

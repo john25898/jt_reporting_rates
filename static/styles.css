@@ -736,6 +736,73 @@ tr.frow:hover td {
   font-weight: 600;
 }
 
+/* donut charts (mixed with the horizontal bars) */
+.donut {
+  display: block;
+}
+.donut .donut-bg {
+  stroke: var(--border);
+}
+.donut .donut-fg {
+  stroke: var(--teal);
+  stroke-linecap: round;
+}
+.donut.good .donut-fg {
+  stroke: var(--green);
+}
+.donut.warn .donut-fg {
+  stroke: #d97706;
+}
+.donut.bad .donut-fg {
+  stroke: var(--red);
+}
+.donut-pct {
+  font-weight: 800;
+  fill: var(--text);
+}
+.donut-label {
+  font-weight: 600;
+  fill: var(--muted);
+  letter-spacing: 0.02em;
+}
+.ov-hero-all3 {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.ov-hero-all3-body {
+  flex: 1 1 220px;
+  min-width: 220px;
+}
+.ov-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ov-card-head {
+  text-align: left;
+}
+.ov-card-head h3 {
+  margin: 4px 0 0;
+}
+.donut-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.cv-side {
+  flex: 0 0 auto;
+}
+.cv-main {
+  flex: 1 1 260px;
+  min-width: 240px;
+}
+
 /* metric narrative */
 .cov-dist {
   margin: 14px 0 16px;
@@ -819,6 +886,10 @@ tr.frow:hover td {
   border: 1px solid var(--border);
   border-radius: 10px;
   transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 .county-viz-row:hover {
   background: #eff6ff;
