@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -223,6 +224,123 @@ def fetch_reporting_rates(ds_id, ou_ids, period, county_ids):
         }
 
     _write_json(cpath, result)
+    return result
+
+
+# --------------------------------------------------------------------------
+# Per-facility form values (the actual numbers submitted on each form)
+# --------------------------------------------------------------------------
+
+_REV_RE = re.compile(r"Rev(?:ision)?[ _]?(\d{4})", re.IGNORECASE)
+
+
+def _dataset_elements(ds_id):
+    """Data elements inside a dataset: {de_id: {name, value_type}}. Cached 30d."""
+    path = os.path.join(config.CACHE_DIR, f"ds_elements_{ds_id}.json")
+    cached = _read_json(path)
+    if cached and (time.time() - cached.get("ts", 0)) < config.ELEMENTS_CACHE_TTL_SECONDS:
+        return cached.get("elements", {})
+    d = khis_get(f"dataSets/{ds_id}.json", {
+        "fields": "dataSetElements[dataElement[id,name,valueType]]",
+    })
+    elements = {}
+    for de in (d or {}).get("dataSetElements") or []:
+        el = de.get("dataElement") or {}
+        if el.get("id"):
+            elements[el["id"]] = {
+                "name": el.get("name", "?"),
+                "value_type": el.get("valueType", ""),
+            }
+    if elements:
+        _write_json(path, {"ts": time.time(), "elements": elements})
+    return elements
+
+
+def _revision_of(name):
+    """Exact dataset revision year embedded in an element name ('2023', '2017'...)."""
+    m = _REV_RE.search(name or "")
+    return m.group(1) if m else None
+
+
+def _clean_metric_name(name):
+    """Strip the '<form> ... Rev/Revision YYYY' prefix for a readable label."""
+    m = _REV_RE.search(name or "")
+    if m:
+        rest = (name or "")[m.end():]
+        return rest.lstrip(" _-/\u2013\u2014:") or name
+    return name or "?"
+
+
+def fetch_facility_form_values(ds_id, period, ou_id):
+    """Exact submitted form values for ONE facility + dataset + month.
+
+    Each data element's values are summed across category-option combos
+    (disaggregations) so the metric shows its true monthly total, and metrics
+    are grouped by the exact dataset revision embedded in their names
+    (e.g. 'Rev 2023' vs 'Revision 2017' vs 'Rev 2026') so versions never mix.
+    Disk-cached 12h.
+    """
+    path = os.path.join(config.VALUES_CACHE_DIR, f"{ds_id}_{period}_{ou_id}.json")
+    if _cache_valid(path):
+        cached = _read_json(path)
+        if cached is not None:
+            return cached
+
+    elements = _dataset_elements(ds_id)
+    ds = khis_get(f"dataSets/{ds_id}.json", {"fields": "id,name"})
+    data = khis_get("dataValueSets.json", {
+        "dataSet": ds_id, "period": period, "orgUnit": ou_id,
+        "includeDeleted": "false",
+    })
+
+    totals = {}  # de_id -> [sum(float|None), raw_count, first_non_numeric]
+    for v in (data or {}).get("dataValues") or []:
+        de_id = v.get("dataElement")
+        if not de_id:
+            continue
+        raw = v.get("value")
+        try:
+            num = float(raw) if raw not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            num = None
+        t = totals.setdefault(de_id, [None, 0, None])
+        if num is not None:
+            t[0] = (t[0] or 0.0) + num
+            t[1] += 1
+        elif t[2] is None:
+            t[2] = raw
+
+    groups = {}
+    for de_id, (total, raw_count, text_val) in totals.items():
+        el = elements.get(de_id, {})
+        name = el.get("name", de_id)
+        version = _revision_of(name)
+        value = text_val if text_val is not None else total
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        groups.setdefault(version, []).append({
+            "id": de_id,
+            "name": _clean_metric_name(name),
+            "value": value,
+            "raw_count": raw_count,
+        })
+
+    rev_groups = []
+    for version, metrics in groups.items():
+        metrics.sort(key=lambda m: m["name"].lower())
+        rev_groups.append({
+            "version": version or "unknown",
+            "label": f"Revision {version}" if version else "Other",
+            "metrics": metrics,
+        })
+    rev_groups.sort(key=lambda g: g["version"])
+
+    result = {
+        "dataset_name": (ds or {}).get("name", ds_id),
+        "n_metrics": sum(len(g["metrics"]) for g in rev_groups),
+        "revision_groups": rev_groups,
+    }
+    _write_json(path, result)
     return result
 
 

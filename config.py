@@ -44,6 +44,7 @@ CACHE_DIR = os.path.join(BASE_DIR, "cache")
 FILTERS_CSV = os.path.join(DATA_DIR, "jamii_tekelezi_filters.csv")
 DATASET_IDS_CACHE = os.path.join(CACHE_DIR, "dataset_ids.json")
 RATES_CACHE_DIR = os.path.join(CACHE_DIR, "rates")
+VALUES_CACHE_DIR = os.path.join(CACHE_DIR, "values")  # per-facility form values
 
 # ---- The three MOH reporting forms ---------------------------------------
 # Each is a separate dataset in KHIS; reporting rate = dataset completeness.
@@ -81,3 +82,4 @@ KHIS_TIMEOUT = 150
 KHIS_RETRIES = 2
 RATE_CACHE_TTL_SECONDS = 12 * 3600  # cache reporting-rate payloads for 12h
 IDS_CACHE_TTL_SECONDS = 7 * 24 * 3600  # dataset-id resolution for 7 days
+ELEMENTS_CACHE_TTL_SECONDS = 30 * 24 * 3600  # dataset data-element list for 30 days

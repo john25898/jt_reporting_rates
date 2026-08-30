@@ -506,7 +506,10 @@ function renderMhoSection(key, form) {
     const th = ev.target.closest("th[data-sort]");
     if (th) {
       toggleSort(key, th.dataset.sort, form);
+      return;
     }
+    const tr = ev.target.closest("tr.frow");
+    if (tr) openFacilityForm(key, form, tr.dataset.fid);
   });
 
   state.sort = { key: "rate", dir: -1 };
@@ -548,7 +551,7 @@ function renderMhoRows(key, form) {
             : f.rate >= 50
               ? "bar-warn"
               : "bar-bad";
-      return `<tr>
+      return `<tr class="frow" data-fid="${f.facility_id}">
       <td class="fname">${f.facility_name}</td>
       <td>${f.county_name}</td>
       <td>${f.subcounty_name}</td>
@@ -570,6 +573,100 @@ function toggleSort(key, sortKey, form) {
     state.sort = { key: sortKey, dir: 1 };
   }
   renderMhoRows(key, form);
+}
+
+/* ---------------- Facility form drill-down ---------------- */
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+}
+
+function formatNum(v) {
+  if (typeof v === "number") return v.toLocaleString("en-US");
+  return String(v ?? "\u2014");
+}
+
+function openFacilityForm(key, form, fid) {
+  const fac = (form.facilities || []).find((x) => x.facility_id === fid);
+  const modal = $("form-modal");
+  modal.classList.remove("hidden");
+  const body = $("form-modal-body");
+  body.innerHTML = `
+    <div class="modal-head">
+      <div>
+        <h3>${escapeHtml(fac ? fac.facility_name : fid)}</h3>
+        <p class="muted small modal-sub">${escapeHtml(form.title)} \u00b7 ${fmtMonth(state.period)} period
+          ${fac ? ` \u00b7 ${escapeHtml(fac.county_name)} \u00b7 ${escapeHtml(fac.subcounty_name)} \u00b7 ${escapeHtml(fac.ward_name)}` : ""}</p>
+      </div>
+      <button class="modal-close" aria-label="Close">\u00d7</button>
+    </div>
+    <div class="modal-loading">Loading form values from KHIS\u2026</div>`;
+  modal
+    .querySelector(".modal-close")
+    .addEventListener("click", closeFacilityForm);
+  fetch(
+    `/api/facility-form?form=${key}&period=${state.period}&facility_id=${fid}&cb=${Date.now()}`,
+  )
+    .then((r) => r.json())
+    .then((d) => renderFacilityForm(d, fac))
+    .catch((err) => {
+      const l = body.querySelector(".modal-loading");
+      if (l)
+        l.outerHTML = `<p class="muted">Failed to load: ${escapeHtml(err.message)}</p>`;
+    });
+}
+
+function renderFacilityForm(d, fac) {
+  const body = $("form-modal-body");
+  const loading = body.querySelector(".modal-loading");
+  if (!d || d.error) {
+    if (loading) {
+      loading.outerHTML = `<p class="muted">${escapeHtml((d && d.error) || "Failed to load form values.")}</p>`;
+    }
+    return;
+  }
+  const reported = fac ? fac.reported : d.n_metrics > 0;
+  const groupsHtml = d.revision_groups
+    .map(
+      (g) => `
+      <div class="rev-group">
+        <h4 class="rev-title">${escapeHtml(g.label)} <span class="muted small">(${g.metrics.length} metric${g.metrics.length === 1 ? "" : "s"})</span></h4>
+        <table class="metric-table">
+          <tbody>
+            ${g.metrics
+              .map(
+                (m) => `
+              <tr>
+                <td class="metric-name">${escapeHtml(m.name)}</td>
+                <td class="num metric-value">${formatNum(m.value)}${m.raw_count > 1 ? ` <span class="muted small">(\u03a3 ${m.raw_count})</span>` : ""}</td>
+              </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>`,
+    )
+    .join("");
+  const html = `
+    ${reported ? "" : `<div class="modal-note">This facility has no submitted values for ${fmtMonth(d.period)} \u2014 counted as <b>not reported</b>.</div>`}
+    <div class="modal-meta">
+      <span>Dataset: <b>${escapeHtml(d.dataset_name || "")}</b></span>
+      <span>Metrics with values: <b>${d.n_metrics}</b></span>
+    </div>
+    ${groupsHtml}
+    ${d.n_metrics ? '<p class="muted small">Values are summed across disaggregations (category option combos) for the selected month.</p>' : '<p class="muted">No data values returned by KHIS for this period.</p>'}`;
+  if (loading) loading.outerHTML = html;
+  else body.insertAdjacentHTML("beforeend", html);
+}
+
+function closeFacilityForm() {
+  $("form-modal").classList.add("hidden");
 }
 
 /* ---------------- Tabs & misc ---------------- */
@@ -603,6 +700,12 @@ document.addEventListener("DOMContentLoaded", () => {
     loadRates();
   });
   $("refresh-btn").addEventListener("click", () => loadRates());
+  $("form-modal").addEventListener("click", (ev) => {
+    if (ev.target === $("form-modal")) closeFacilityForm();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeFacilityForm();
+  });
   $("tabs-nav").addEventListener("click", (ev) => {
     const btn = ev.target.closest(".tab");
     if (btn) switchTab(btn.dataset.tab);

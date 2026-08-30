@@ -5,3 +5,4 @@ cache/
 logs/
 .venv/
 _probe_assignments.py
+_probe_values.py

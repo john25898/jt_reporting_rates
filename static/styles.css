@@ -447,3 +447,115 @@ h3 {
   font-size: 12px;
   padding: 20px 0 30px;
 }
+
+/* clickable facility rows (open drill-down) */
+tr.frow {
+  cursor: pointer;
+}
+tr.frow:hover td {
+  background: #eff6ff;
+}
+
+/* facility form drill-down modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  z-index: 50;
+  overflow: auto;
+}
+.modal-panel {
+  background: #fff;
+  border-radius: 12px;
+  max-width: 780px;
+  width: 100%;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+}
+#form-modal-body {
+  padding: 18px 20px 22px;
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.modal-head h3 {
+  margin: 0 0 4px;
+}
+.modal-sub {
+  margin: 0;
+  line-height: 1.5;
+}
+.modal-close {
+  background: var(--border);
+  border: none;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.modal-close:hover {
+  background: #cbd5e1;
+  color: var(--text);
+}
+.modal-loading {
+  color: var(--muted);
+  padding: 12px 0;
+}
+.modal-note {
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.modal-meta {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.rev-group {
+  margin-bottom: 14px;
+}
+.rev-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--blue-dark);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.metric-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.metric-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.metric-name {
+  color: var(--text);
+}
+.metric-value {
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: right;
+}

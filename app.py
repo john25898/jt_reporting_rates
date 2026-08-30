@@ -222,6 +222,43 @@ def reporting_rates():
     })
 
 
+@app.get("/api/facility-form")
+def facility_form():
+    """Exact submitted form values for one facility + form + month (drill-down)."""
+    form_key = request.args.get("form")
+    period = request.args.get("period", config.DEFAULT_PERIOD)
+    facility_id = request.args.get("facility_id")
+    valid_keys = {f["key"] for f in config.MOH_FORMS}
+    if not facility_id or form_key not in valid_keys:
+        return jsonify({"error": "form and facility_id are required"}), 400
+
+    h = _load_hierarchy()
+    row = h["facility_lookup"].get(facility_id)
+    if not row:
+        return jsonify({"error": "unknown facility"}), 404
+
+    ds = khis_client.resolve_moh_dataset_ids().get(form_key)
+    if not ds:
+        return jsonify({"error": "dataset not resolved"}), 502
+
+    values = khis_client.fetch_facility_form_values(ds["id"], period, facility_id)
+    return jsonify({
+        "form": form_key,
+        "title": next((f["title"] for f in config.MOH_FORMS if f["key"] == form_key), form_key),
+        "period": period,
+        "facility": {
+            "id": row["facility_id"],
+            "name": row["facility_name"],
+            "county_name": row["county_name"],
+            "subcounty_name": row["subcounty_name"],
+            "ward_name": row["ward_name"],
+        },
+        "dataset_name": values.get("dataset_name"),
+        "n_metrics": values.get("n_metrics", 0),
+        "revision_groups": values.get("revision_groups", []),
+    })
+
+
 if __name__ == "__main__":
     print(f"JT Reporting Rates app on http://{config.HOST}:{config.PORT}")
     app.run(host=config.HOST, port=config.PORT, debug=False, threaded=True)
