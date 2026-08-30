@@ -238,6 +238,73 @@ h3 {
   font-size: 34px;
   font-weight: 800;
 }
+.ov-desc {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+
+/* form info (About this form) */
+.form-info {
+  border-left: 4px solid var(--blue);
+}
+.form-info summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--blue-dark);
+  list-style: none;
+}
+.form-info summary::-webkit-details-marker {
+  display: none;
+}
+.form-info summary::before {
+  content: "▸ ";
+  color: var(--blue);
+}
+.form-info[open] summary::before {
+  content: "▾ ";
+}
+.form-info[open] summary {
+  margin-bottom: 10px;
+}
+.info-tagline {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 12px;
+  line-height: 1.55;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.info-col h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.info-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+}
+.info-item .info-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.info-item .info-desc {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+  line-height: 1.45;
+}
 .stat-card .stat-value {
   font-size: 26px;
   font-weight: 700;

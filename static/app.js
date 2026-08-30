@@ -37,6 +37,191 @@ function fmtMonth(ym) {
   return `${MONTH_NAMES[m] || "?"} ${y}`;
 }
 
+/* ---------------- Form documentation ---------------- */
+
+const FORM_INFO = {
+  moh643: {
+    full_name:
+      "MOH 643B — Facility Consumption Data Report and Request (Lab Commodities)",
+    short:
+      "Inventory & resupply for lab reagents and diagnostic testing commodities.",
+    tagline:
+      "Primary inventory and resupply form for laboratory reagents and diagnostic testing commodities. Completed by the laboratory in-charge at the end of every month.",
+    sections: [
+      {
+        title: "Commodities tracked",
+        items: [
+          {
+            label: "HIV Testing",
+            desc: "HIV Rapid Test Kits (RTKs).",
+          },
+          {
+            label: "ART Monitoring",
+            desc: "CD3/CD4 reporting reagents, Early Infant Diagnosis (EID) kits, and Viral Load (VL) consumables.",
+          },
+          {
+            label: "General Lab",
+            desc: "Basic Biochemistry and Haematology supplies.",
+          },
+        ],
+      },
+      {
+        title: "Data fields / metrics (inventory logic)",
+        items: [
+          {
+            label: "Beginning Balance",
+            desc: "Stock available at the start of the reporting month — must logically match the ending balance of the previous month.",
+          },
+          {
+            label: "Quantity Received",
+            desc: "Stock delivered to the facility during the month.",
+          },
+          {
+            label: "Total Used / Tests Done",
+            desc: "Actual number of tests conducted successfully, excluding repeats or failed runs.",
+          },
+          {
+            label: "Losses / Wastage",
+            desc: "Commodities that expired, were damaged, or failed during quality control.",
+          },
+          {
+            label: "Positive / Negative Adjustments",
+            desc: "Stock borrowed from or lent to neighboring facilities.",
+          },
+          {
+            label: "Ending Balance (Physical Count)",
+            desc: "Actual stock counted on the shelves at the end of the month.",
+          },
+          {
+            label: "Amount to Request",
+            desc: "Calculated resupply quantity needed to prevent stock-outs.",
+          },
+        ],
+      },
+    ],
+  },
+  moh729: {
+    full_name: "MOH 729 — Monthly ART / Patient Summary Report",
+    short: "Clinical summary of the patient cohort on ART and OI treatment.",
+    tagline:
+      "Unlike the commodity forms, MOH 729 tracks human beings. It is the clinical summary of the patient cohort currently receiving Antiretroviral Therapy (ART) and Opportunistic Infection (OI) treatments.",
+    sections: [
+      {
+        title: "Patient cohorts & categories tracked",
+        items: [
+          {
+            label: "Current Active Patients (Tx_CURR)",
+            desc: "Patients actively on a specific ARV or OI treatment regimen during the reporting period.",
+          },
+          {
+            label: "Regimen Disaggregation",
+            desc: "Patients broken down by exact treatment — e.g., Adult 1st Line, Adult 2nd Line, Pediatric regimens.",
+          },
+          {
+            label: "New Patients (Tx_NEW)",
+            desc: "Clients newly initiated on ART during that specific month.",
+          },
+          {
+            label: "Patient Attrition / Retention",
+            desc: "Clients who Transferred In (TI), Transferred Out (TO), stopped treatment, or were Lost to Follow-Up (LTFU).",
+          },
+          {
+            label: "Special Populations",
+            desc: "Pregnant and lactating mothers on PMTCT (Prevention of Mother-to-Child Transmission) and HIV-Exposed Infants (HEI).",
+          },
+        ],
+      },
+    ],
+  },
+  moh730: {
+    full_name:
+      "MOH 730B — Facility Consumption Data Report and Request (ARV & OI Commodities)",
+    short: "Pharmacy consumption of ARV and opportunistic-infection drugs.",
+    tagline:
+      "This form bridges the gap between the patient numbers in MOH 729 and the pharmacy store. It tracks the physical consumption of pharmaceutical drugs used to treat HIV and opportunistic infections.",
+    sections: [
+      {
+        title: "Commodities tracked",
+        items: [
+          {
+            label: "Adult Antiretrovirals (ARVs)",
+            desc: "e.g., TLD (Tenofovir/Lamivudine/Dolutegravir), TL, ATV/r.",
+          },
+          {
+            label: "Pediatric ARVs",
+            desc: "e.g., Pediatric LPV/r pellets, ABC/3TC formulations.",
+          },
+          {
+            label: "Prophylaxis / OI Drugs",
+            desc: "Medications for opportunistic infections such as Cotrimoxazole (Septrin), Fluconazole, Dapsone, and Isoniazid (for TB preventive therapy).",
+          },
+        ],
+      },
+      {
+        title: "Data fields / metrics (pharmacy logic)",
+        items: [
+          {
+            label: "Beginning Balance",
+            desc: "Stock at the start of the month.",
+          },
+          {
+            label: "Quantity Received",
+            desc: "Drugs supplied to the pharmacy.",
+          },
+          {
+            label: "Quantity Dispensed",
+            desc: "Total pills/packs issued directly to patients — cross-references with the patient numbers in MOH 729.",
+          },
+          {
+            label: "Losses & Wastage",
+            desc: "Expired or damaged medication.",
+          },
+          {
+            label: "Physical Count",
+            desc: "Physical stock remaining at the end of the month.",
+          },
+          {
+            label: "Days Out of Stock",
+            desc: "Number of days the facility was completely unable to dispense a specific drug.",
+          },
+          {
+            label: "Quantity Requested",
+            desc: "The order placed for the next resupply cycle.",
+          },
+        ],
+      },
+    ],
+  },
+};
+
+function renderFormInfo(key) {
+  const info = FORM_INFO[key];
+  if (!info) return "";
+  const cols = info.sections
+    .map(
+      (sec) => `
+      <div class="info-col">
+        <h4>${sec.title}</h4>
+        ${sec.items
+          .map(
+            (it) => `
+          <div class="info-item">
+            <div class="info-label">${it.label}</div>
+            <div class="info-desc">${it.desc}</div>
+          </div>`,
+          )
+          .join("")}
+      </div>`,
+    )
+    .join("");
+  return `
+    <details class="card form-info" open>
+      <summary>ℹ About this form — ${info.full_name}</summary>
+      <p class="info-tagline">${info.tagline}</p>
+      <div class="info-grid">${cols}</div>
+    </details>`;
+}
+
 /* ---------------- Locations / filter cascade ---------------- */
 
 async function loadLocations() {
@@ -246,6 +431,7 @@ function renderOverview(d) {
       `
       <div class="card overview-card" data-tablink="${f.key}">
         <h3>${f.title}</h3>
+        <div class="ov-desc">${(FORM_INFO[f.key] || {}).short || ""}</div>
         <div class="big-rate ${rate == null ? "muted" : rate >= 80 ? "good" : rate >= 50 ? "warn" : "bad"}">${rate == null ? "—" : rate.toFixed(1) + "%"}</div>
         <div class="ov-stats">
           <span>${s.facilities_reported} / ${s.facilities_with_expected} reported</span>
@@ -290,6 +476,7 @@ function renderMhoSection(key, form) {
   const s = form.summary;
   const rate = s.overall_rate;
   panel.innerHTML = `
+    ${renderFormInfo(key)}
     <div class="cards-grid">
       <div class="card stat-card"><div class="stat-label">Facilities in scope</div><div class="stat-value">${s.facilities_in_scope}</div></div>
       <div class="card stat-card"><div class="stat-label">Expected reports</div><div class="stat-value">${s.expected_reports}</div></div>
