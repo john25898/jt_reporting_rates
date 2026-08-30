@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+cache/
+logs/
+.venv/
+_probe_assignments.py

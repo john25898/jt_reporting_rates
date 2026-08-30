@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jamii Tekelezi — Facility Reporting Rates</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand">
+          <span class="brand-mark">JT</span>
+          <div>
+            <h1>Jamii Tekelezi — Facility Reporting Rates</h1>
+            <p class="subtitle">
+              MOH 643 B · MOH 729 · MOH 730 B &nbsp;|&nbsp; Annual facility
+              reporting (KHIS completeness)
+            </p>
+          </div>
+        </div>
+        <div id="status-banner" class="status-banner hidden"></div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Filter bar -->
+      <section class="card filter-card">
+        <div class="filter-row">
+          <label
+            >Scope
+            <select id="scope-select">
+              <option value="all">All Jamii Tekelezi Facilities</option>
+            </select>
+          </label>
+          <label
+            >County
+            <select id="county-select">
+              <option value="">All Counties</option>
+            </select>
+          </label>
+          <label
+            >Sub-County
+            <select id="subcounty-select">
+              <option value="">All Sub-Counties</option>
+            </select>
+          </label>
+          <label
+            >Ward
+            <select id="ward-select">
+              <option value="">All Wards</option>
+            </select>
+          </label>
+          <label
+            >Facility
+            <select id="facility-select">
+              <option value="">All Facilities</option>
+            </select>
+          </label>
+          <label
+            >Period
+            <select id="period-select"></select>
+          </label>
+        </div>
+        <div class="filter-meta">
+          <span id="scope-summary">Loading…</span>
+          <button id="refresh-btn" class="btn">⟳ Refresh</button>
+        </div>
+      </section>
+
+      <!-- Tabs -->
+      <nav class="tabs" id="tabs-nav">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="moh643">MOH 643 B - 2023</button>
+        <button class="tab" data-tab="moh729">MOH 729 - 2023</button>
+        <button class="tab" data-tab="moh730">MOH 730 B - 2023</button>
+      </nav>
+
+      <!-- Loading -->
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Fetching reporting rates from KHIS…</span>
+      </div>
+
+      <!-- Overview tab -->
+      <section id="tab-overview" class="tab-panel active">
+        <div id="overview-cards" class="cards-grid"></div>
+        <div class="card">
+          <h3>Facilities in current scope</h3>
+          <div id="overview-facility-list" class="facility-list"></div>
+        </div>
+      </section>
+
+      <!-- Per-MOH tabs -->
+      <section id="tab-moh643" class="tab-panel"></section>
+      <section id="tab-moh729" class="tab-panel"></section>
+      <section id="tab-moh730" class="tab-panel"></section>
+    </main>
+
+    <footer class="app-footer">
+      Jamii Tekelezi Reporting Rates — independent reporting dashboard · Data
+      source: Kenya HIS (KHIS) dataset completeness
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
