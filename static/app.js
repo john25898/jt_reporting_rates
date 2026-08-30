@@ -644,14 +644,18 @@ function renderMetricsStory() {
   const rate = story.overallRate;
   const seg = (n) =>
     story.tracked ? Math.max(2, Math.round((100 * n) / story.tracked)) : 0;
-  const row = (mt) => `
-    <tr>
-      <td class="metric-name">${escapeHtml(mt.name)}</td>
-      <td><span class="form-tag">${mt.form}</span></td>
-      <td class="num">${mt.reported} / ${mt.total}</td>
-      <td class="num">${mt.pct.toFixed(0)}%</td>
-      <td><div class="cov-bar"><div class="cov-fill ${mt.pct >= 80 ? "bar-good" : mt.pct >= 50 ? "bar-warn" : "bar-bad"}" style="width:${Math.min(100, mt.pct)}%"></div></div></td>
-    </tr>`;
+  const rankBar = (mt) => `
+    <div class="rank-row">
+      <div class="rank-label">
+        <span class="metric-name" title="${escapeHtml(mt.name)}">${escapeHtml(mt.name)}</span>
+        <span class="form-tag">${mt.form}</span>
+      </div>
+      <div class="rank-bar">
+        <div class="rank-fill ${mt.pct >= 80 ? "bar-good" : mt.pct >= 50 ? "bar-warn" : "bar-bad"}" style="width:${Math.max(mt.pct, 2)}%"></div>
+        <span class="rank-pct ${mt.pct >= 80 ? "good" : mt.pct >= 50 ? "warn" : "bad"}">${mt.pct.toFixed(0)}%</span>
+      </div>
+      <div class="rank-sub muted">${mt.reported} of ${mt.total} facilities</div>
+    </div>`;
   wrap.innerHTML = `
     <div class="card">
       <div class="metric-head">
@@ -679,17 +683,11 @@ function renderMetricsStory() {
       <div class="metric-rank-grid">
         <div class="rank-col">
           <h4>🔻 Most often missing <span class="muted small">(lowest coverage)</span></h4>
-          <table class="coverage-table">
-            <thead><tr><th>Metric</th><th>Form</th><th class="num">Coverage</th><th>Bar</th></tr></thead>
-            <tbody>${story.worst.map(row).join("")}</tbody>
-          </table>
+          ${story.worst.map(rankBar).join("")}
         </div>
         <div class="rank-col">
           <h4>🔺 Best reported <span class="muted small">(highest coverage)</span></h4>
-          <table class="coverage-table">
-            <thead><tr><th>Metric</th><th>Form</th><th class="num">Coverage</th><th>Bar</th></tr></thead>
-            <tbody>${story.best.map(row).join("")}</tbody>
-          </table>
+          ${story.best.map(rankBar).join("")}
         </div>
       </div>
     </div>`;
@@ -745,11 +743,43 @@ function renderCountyMatrix(d) {
     k === "moh643" ? "643B" : k === "moh729" ? "729" : "730B";
   const chip = (rate) =>
     `<span class="rate-chip ${rate == null ? "muted" : rate >= 80 ? "chip-good" : rate >= 50 ? "chip-warn" : "chip-bad"}">${rate == null ? "—" : rate.toFixed(0) + "%"}</span>`;
+  const vizRows = rows
+    .map(
+      (r) => `
+    <div class="county-viz-row" data-county="${escapeHtml(r.name)}">
+      <div class="cv-head">
+        <span class="cv-name">${escapeHtml(r.name)}</span>
+        <span class="cv-count muted">${r.nFac} facilities</span>
+        <span class="cv-all3">All 3 forms: <b>${r.all3} / ${r.nFac}</b></span>
+      </div>
+      ${r.formRates
+        .map((fr) => {
+          const rt = fr.rate;
+          const fillCls =
+            rt == null
+              ? ""
+              : rt >= 80
+                ? "bar-good"
+                : rt >= 50
+                  ? "bar-warn"
+                  : "bar-bad";
+          return `
+      <div class="cv-line">
+        <span class="cv-label">${badge(fr.key)}</span>
+        <div class="cv-track"><div class="cv-fill ${fillCls}" style="width:${rt == null ? 0 : Math.max(rt, 2)}%"></div></div>
+        <span class="cv-pct ${rt == null ? "muted" : rt >= 80 ? "good" : rt >= 50 ? "warn" : "bad"}">${rt == null ? "—" : rt.toFixed(0) + "%"}</span>
+      </div>`;
+        })
+        .join("")}
+    </div>`,
+    )
+    .join("");
   wrap.innerHTML = `
     <div class="card">
       <div class="metric-head">
         <h3>By county <span class="muted small">— reporting rate per form · click a county to zoom into it</span></h3>
       </div>
+      <div class="county-viz">${vizRows}</div>
       <table class="rate-table county-table">
         <thead><tr>
           <th>County</th><th class="num">Facilities</th>
@@ -786,12 +816,16 @@ function renderCountyMatrix(d) {
 }
 
 function renderFacilityList(d) {
-  const list = $("overview-facility-list");
+  const tbody = $("fac-tbody");
+  if (!tbody) return;
+  const badge = (k) =>
+    k === "moh643" ? "643B" : k === "moh729" ? "729" : "730B";
   const allFacs = {};
   d.forms.forEach((f) => {
     f.facilities.forEach((r) => {
       if (!allFacs[r.facility_id])
         allFacs[r.facility_id] = {
+          id: r.facility_id,
           name: r.facility_name,
           county: r.county_name,
           sub: r.subcounty_name,
@@ -809,13 +843,24 @@ function renderFacilityList(d) {
     });
   });
   const vals = Object.values(allFacs);
-  list.innerHTML = vals.length
+  tbody.innerHTML = vals.length
     ? vals
         .map((f) => {
-          const rates = d.forms.map((form) => {
-            const r = f.byForm[form.key];
-            return r && r.rate != null ? r.rate.toFixed(0) + "%" : "—";
-          });
+          const dots = d.forms
+            .map((form) => {
+              const r = f.byForm[form.key];
+              const cls =
+                !r || !r.expected ? "off" : r.reported ? "ok" : "miss";
+              const mark = cls === "ok" ? "✓" : cls === "miss" ? "✗" : "–";
+              const title =
+                cls === "ok"
+                  ? "reported"
+                  : cls === "miss"
+                    ? "expected, not reported"
+                    : "not assigned";
+              return `<td class="num"><span class="fdot ${cls}" title="${badge(form.key)}: ${title}">${mark}</span></td>`;
+            })
+            .join("");
           const pill =
             f.expected === 0
               ? `<span class="pill mute">Unassigned</span>`
@@ -826,13 +871,33 @@ function renderFacilityList(d) {
                 : f.reported > 0
                   ? `<span class="pill warn-pill">${f.reported}/${f.expected} forms</span>`
                   : `<span class="pill bad">None</span>`;
-          return `<div class="facility-row"><span class="fname">${f.name}</span>
-                <span class="fmeta">${f.county} · ${f.sub} · ${f.ward}</span>
-                <span class="frates">643B: ${rates[0]} &nbsp; 729: ${rates[1]} &nbsp; 730B: ${rates[2]}</span>
-                ${pill}</div>`;
+          return `<tr class="frow" data-fid="${escapeHtml(f.id)}" data-search="${escapeHtml((f.name + " " + f.county).toLowerCase())}">
+            <td class="fname">${escapeHtml(f.name)}</td>
+            <td>${escapeHtml(f.county)}</td>
+            ${dots}
+            <td>${pill}</td>
+          </tr>`;
         })
         .join("")
-    : '<p class="muted">No facilities in scope.</p>';
+    : '<tr><td colspan="6" class="muted">No facilities in scope.</td></tr>';
+
+  tbody.querySelectorAll("tr.frow").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const fid = tr.dataset.fid;
+      if (fid) openFacilityPage(null, null, fid);
+    });
+  });
+
+  const search = $("fac-search");
+  if (search) {
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      tbody.querySelectorAll("tr.frow").forEach((tr) => {
+        tr.style.display =
+          !q || (tr.dataset.search || "").includes(q) ? "" : "none";
+      });
+    };
+  }
 }
 
 /* ---------------- Per-MOH section ---------------- */

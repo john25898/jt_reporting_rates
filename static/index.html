@@ -89,8 +89,35 @@
         <div id="overview-metrics"></div>
         <div id="overview-counties"></div>
         <div class="card">
-          <h3>Facilities in current scope</h3>
-          <div id="overview-facility-list" class="facility-list"></div>
+          <div class="metric-head">
+            <h3>
+              Facilities in current scope
+              <span class="muted small"
+                >— click a row for its metric detail</span
+              >
+            </h3>
+          </div>
+          <input
+            id="fac-search"
+            class="fac-search"
+            type="search"
+            placeholder="Search facility or county…"
+          />
+          <div class="fac-scroll">
+            <table class="rate-table fac-table">
+              <thead>
+                <tr>
+                  <th>Facility</th>
+                  <th>County</th>
+                  <th class="num">643B</th>
+                  <th class="num">729</th>
+                  <th class="num">730B</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="fac-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
