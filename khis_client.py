@@ -143,6 +143,133 @@ def resolve_moh_dataset_ids(force=False):
 
 
 # --------------------------------------------------------------------------
+# Latest *closed* month (default-period auto-resolution)
+# --------------------------------------------------------------------------
+# The three Revision-2023 datasets are monthly returns. KHIS "closes" a month
+# once reporting for it has finished — detectable by comparing completed-
+# registration counts against earlier, already-closed months. We watch MOH
+# 643B (the busiest dataset) across the JT counties; the result is cached to
+# disk for 24h so every cold boot stays fast and the default flips to the new
+# month automatically when KHIS closes it.
+_CLOSED_MIN = 30          # below this many completed registrations = not closed
+_CLOSED_RATIO = 0.8       # a month is closed once it reaches 80% of the prior one
+
+_detect_thread = None
+_default_thread_lock = threading.Lock()
+_default_period = None    # best-known default (module global)
+
+
+def _jt_county_ids():
+    """County ids of the JT scope (lazy, from the filters CSV)."""
+    cached = getattr(_jt_county_ids, "_cache", None)
+    if cached is None:
+        try:
+            import pandas as pd
+            df = pd.read_csv(config.FILTERS_CSV)
+            cached = list(dict.fromkeys(df["county_id"].tolist()))
+        except Exception:
+            cached = []
+        _jt_county_ids._cache = cached
+    return cached
+
+
+def _prev_calendar_months(n):
+    """The n calendar months ending with the month before this one (newest last)."""
+    import datetime as _dt
+    today = _dt.date.today()
+    out = []
+    for i in range(n - 1, -1, -1):
+        ym = (today.month - 1) - i - 1  # 0-based target month index
+        yy = today.year + (ym // 12)
+        mm = (ym % 12) + 1
+        out.append(f"{yy}{mm:02d}")
+    return out
+
+
+def _month_completion_count(period, county_ids):
+    """Completed MOH 643B registrations across the counties for a month."""
+    ds = resolve_moh_dataset_ids().get("moh643")
+    if not ds or not county_ids:
+        return None
+    total = 0
+    ok = 0
+    for cid in county_ids:
+        d = khis_get("completeDataSetRegistrations.json", {
+            "dataSet": ds["id"], "period": period,
+            "orgUnit": cid, "children": "true"})
+        if d is None:
+            continue
+        ok += 1
+        total += len(d.get("completeDataSetRegistrations") or [])
+    return total if ok else None
+
+
+def _resolve_default_period():
+    """Detect and cache the newest closed month (called once per staleness)."""
+    global _default_period
+    if os.environ.get("JT_DEFAULT_PERIOD"):
+        _default_period = config.DEFAULT_PERIOD
+        return _default_period
+
+    cached = _read_json(config.DEFAULT_PERIOD_CACHE) or {}
+    months = _prev_calendar_months(4)
+    counties = _jt_county_ids()
+    if not counties:
+        _default_period = cached.get("period") or config.DEFAULT_PERIOD
+        return _default_period
+
+    counts = {}
+    for per in months:
+        counts[per] = _month_completion_count(per, counties)
+        if counts[per] is None:  # KHIS unreachable -> keep last known default
+            _default_period = cached.get("period") or config.DEFAULT_PERIOD
+            return _default_period
+
+    chosen = months[0]  # oldest window month is long closed -> sane baseline
+    for k in range(1, len(months)):
+        prev_c = counts[months[k - 1]]
+        c = counts[months[k]]
+        if prev_c and c is not None and c >= max(_CLOSED_MIN, _CLOSED_RATIO * prev_c):
+            chosen = months[k]
+        else:
+            break
+    _write_json(config.DEFAULT_PERIOD_CACHE,
+                {"ts": time.time(), "period": chosen, "counts": counts})
+    _default_period = chosen
+    return chosen
+
+
+def current_default_period():
+    """Best-known default period without ever blocking on KHIS."""
+    global _default_period
+    if _default_period is None:
+        cached = _read_json(config.DEFAULT_PERIOD_CACHE) or {}
+        if cached.get("period"):
+            _default_period = cached["period"]
+    return _default_period or config.DEFAULT_PERIOD
+
+
+def ensure_default_period():
+    """Return the current default; kick a background re-check when the 24h
+    closure cache is stale so the app self-updates when KHIS closes a month."""
+    global _default_period, _detect_thread
+    if _default_period is not None:
+        return _default_period
+    cached = _read_json(config.DEFAULT_PERIOD_CACHE) or {}
+    fresh = (cached and (time.time() - cached.get("ts", 0))
+             < config.DEFAULT_PERIOD_TTL_SECONDS)
+    if cached.get("period"):
+        _default_period = cached["period"]
+    if not fresh and not os.environ.get("JT_DEFAULT_PERIOD"):
+        with _default_thread_lock:
+            if _detect_thread is None or not _detect_thread.is_alive():
+                _detect_thread = threading.Thread(
+                    target=_resolve_default_period, daemon=True)
+                _detect_thread.start()
+    return _default_period or config.DEFAULT_PERIOD
+
+
+# --------------------------------------------------------------------------
 # Reporting rates (dataset completeness)
 # --------------------------------------------------------------------------
 
@@ -381,31 +508,152 @@ def fetch_facility_form_values(ds_id, period, ou_id, target_revision=config.TARG
     return result
 
 
-def fetch_metric_reporting(ds_id, period, ou_ids, target_revision=config.TARGET_REVISION):
-    """Per-facility count of reported metrics for a dataset (parallel).
+def _bulk_tracked_map(ds_id, target_revision):
+    """{de_id: clean_name} for a dataset's target-revision elements (cached)."""
+    elements = _dataset_elements(ds_id)
+    return {de_id: _clean_metric_name(meta.get("name", de_id))
+            for de_id, meta in elements.items()
+            if _revision_of(meta.get("name", "")) == target_revision}
 
-    Reuses the 12h form-values cache per facility, so repeated calls are
-    cheap. Returns {ou_id: {"reported": int, "total": int}}.
+
+def _bulk_cache_path(ds_id, period, ou_ids):
+    h = hashlib.md5(";".join(sorted(ou_ids)).encode()).hexdigest()[:12]
+    return os.path.join(config.BULK_CACHE_DIR, f"{ds_id}_{period}_{h}.json")
+
+
+def _bulk_county_values(ds_id, period, county_ids):
+    """dataValues rows for a dataset + month across whole counties (children).
+
+    One KHIS call per county instead of one per facility — the same values,
+    ~30x fewer requests on large scopes.
+    """
+    rows = []
+
+    def _fetch(cid):
+        d = khis_get("dataValueSets.json", {
+            "dataSet": ds_id, "period": period, "orgUnit": cid,
+            "children": "true", "paging": "false"})
+        return (d or {}).get("dataValues") or []
+
+    with ThreadPoolExecutor(max_workers=min(8, len(county_ids))) as ex:
+        for chunk in ex.map(_fetch, county_ids):
+            rows += chunk
+    return rows
+
+
+def reported_metric_sets(ds_id, period, ou_ids, county_ids=None,
+                         target_revision=config.TARGET_REVISION):
+    """Which tracked metrics each facility reported for a dataset + month.
+
+    Large scopes (>= config.BULK_MIN_FACILITIES) use one county-wide
+    dataValueSets call per county and the result is disk-cached (12h); small
+    scopes reuse the per-facility form-values cache (which also warms the
+    facility drill-down).
+
+    Returns ( {ou_id: [de_id, ...]}, total_metrics, {de_id: clean_name} ).
+    """
+    ou_ids = list(dict.fromkeys(ou_ids))
+    if not ou_ids or not ds_id:
+        return {}, 0, {}
+    name_map = _bulk_tracked_map(ds_id, target_revision)
+    total = len(name_map)
+
+    if county_ids and len(ou_ids) >= config.BULK_MIN_FACILITIES:
+        cpath = _bulk_cache_path(ds_id, period, ou_ids)
+        if _cache_valid(cpath):
+            cached = _read_json(cpath)
+            if cached is not None:
+                return cached.get("sets", {}), cached.get("total", total), name_map
+
+        ou_set = set(ou_ids)
+        by_fac = {}
+        for v in _bulk_county_values(ds_id, period, county_ids):
+            de, ou = v.get("dataElement"), v.get("orgUnit")
+            if de in name_map and ou in ou_set:
+                by_fac.setdefault(ou, set()).add(de)
+        sets = {uid: sorted(by_fac.get(uid, ())) for uid in ou_ids}
+        # cache even an empty result so an empty month isn't re-fetched
+        _write_json(cpath, {"ts": time.time(), "sets": sets, "total": total})
+        return sets, total, name_map
+
+    # small scope -> per-facility path (also warms the drill-down cache)
+    sets = {}
+    for uid in ou_ids:
+        fv = fetch_facility_form_values(ds_id, period, uid, target_revision)
+        sets[uid] = sorted(m["id"] for m in (fv.get("metrics") or [])
+                           if m.get("reported"))
+    return sets, total, name_map
+
+
+def fetch_metric_reporting(ds_id, period, ou_ids, target_revision=config.TARGET_REVISION,
+                           county_ids=None):
+    """Per-facility count of reported metrics for a dataset.
+
+    Returns {ou_id: {"reported": int, "total": int}}. For large scopes this
+    uses the county-wide bulk fetch (a handful of KHIS calls), for small
+    scopes the per-facility cached path.
     """
     ou_ids = list(dict.fromkeys(ou_ids))
     if not ou_ids or not ds_id:
         return {}
-
-    def _count(uid):
-        fv = fetch_facility_form_values(ds_id, period, uid, target_revision)
-        return uid, {
-            "reported": fv.get("reported_metrics", 0),
-            "total": fv.get("total_metrics", 0),
-        }
-
-    result = {}
-    with ThreadPoolExecutor(max_workers=min(10, len(ou_ids))) as ex:
-        for uid, cnt in ex.map(_count, ou_ids):
-            result[uid] = cnt
-    return result
+    sets, total, _ = reported_metric_sets(
+        ds_id, period, ou_ids, county_ids, target_revision)
+    return {uid: {"reported": len(sets.get(uid, ())), "total": total}
+            for uid in ou_ids}
 
 
 def khis_reachable():
     """Cheap reachability probe against system/info with our credentials."""
     data = khis_get("system/info.json", {"fields": "version"}, timeout=20)
     return data is not None and bool(data.get("version"))
+
+
+# --------------------------------------------------------------------------
+# Background warm (default month across the whole JT scope)
+# --------------------------------------------------------------------------
+def warm_default_scope(period=None):
+    """Pre-fetch reporting rates + bulk metric detail for the default month
+    across all JT facilities so the first page load (or a month change) is
+    served from cache. Cheap when caches are already valid; returns quickly.
+    """
+    period = period or current_default_period()
+    county_ids = _jt_county_ids()
+    if not county_ids:
+        return
+    try:
+        import pandas as pd
+        df = pd.read_csv(config.FILTERS_CSV)
+        facility_ids = list(dict.fromkeys(df["facility_id"].tolist()))
+    except Exception:
+        return
+    datasets = resolve_moh_dataset_ids()
+    for form in config.MOH_FORMS:
+        ds = datasets.get(form["key"])
+        if not ds or not facility_ids:
+            continue
+        # reporting rates (completeness) — cached 12h, no-op when valid
+        fetch_reporting_rates(ds["id"], facility_ids, period, county_ids)
+        # metric detail — county-wide bulk fetch, cached 12h, no-op when valid
+        reported_metric_sets(ds["id"], period, facility_ids, county_ids)
+
+
+def start_background_jobs():
+    """One background job per host: resolve the default (latest closed) month
+    and warm that month's caches. Guarded by an atomic dir so concurrent
+    gunicorn workers don't each run it."""
+    try:
+        os.makedirs(config.CACHE_DIR, exist_ok=True)
+        os.mkdir(os.path.join(config.CACHE_DIR, ".background"))  # one winner
+    except FileExistsError:
+        return
+    except Exception:
+        pass
+
+    def _job():
+        try:
+            _resolve_default_period()
+            warm_default_scope()
+        except Exception:
+            pass
+
+    threading.Thread(target=_job, daemon=True).start()

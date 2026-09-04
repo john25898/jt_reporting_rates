@@ -390,43 +390,43 @@ async function loadRates() {
   if (s.facility_id) p.set("facility_id", s.facility_id);
 
   $("loading").classList.remove("hidden");
-  try {
-    const res = await fetch(`/api/reporting-rates?${p.toString()}`);
-    state.data = await res.json();
+
+  // Fetch reporting rates AND the metric detail in parallel — each renders
+  // as soon as it arrives, so neither waits on the other.
+  const [ratesRes, metricsRes] = await Promise.allSettled([
+    fetch(`/api/reporting-rates?${p.toString()}`),
+    fetch(`/api/metrics-summary?${p.toString()}`),
+  ]);
+
+  if (ratesRes.status === "fulfilled" && ratesRes.value.ok) {
+    state.data = await ratesRes.value.json();
     renderAll();
-  } catch (err) {
-    $("loading").classList.add("hidden");
-    showError(`Failed to load reporting rates: ${err.message}`);
+  } else {
+    const msg =
+      ratesRes.status === "rejected"
+        ? ratesRes.reason && ratesRes.reason.message
+        : `HTTP ${ratesRes.value && ratesRes.value.status}`;
+    showError(`Failed to load reporting rates: ${msg || "unknown error"}`);
   }
-  loadMetrics();
+  $("loading").classList.add("hidden");
+
+  if (metricsRes.status === "fulfilled" && metricsRes.value.ok) {
+    state.metrics = await metricsRes.value.json();
+    renderMetricSummary();
+  }
 }
 
 /* Per-MOH metric reporting cards (tracked 2023-version metrics only) */
-async function loadMetrics() {
-  const p = new URLSearchParams({ period: state.period, cb: Date.now() });
-  const s = state.scope;
-  if (s.county_id) p.set("county_id", s.county_id);
-  if (s.subcounty_id) p.set("subcounty_id", s.subcounty_id);
-  if (s.ward_id) p.set("ward_id", s.ward_id);
-  if (s.facility_id) p.set("facility_id", s.facility_id);
-
-  try {
-    const res = await fetch(`/api/metrics-summary?${p.toString()}`);
-    state.metrics = await res.json();
-    const byKey = {};
-    (state.metrics.forms || []).forEach((f) => {
-      byKey[f.key] = f;
-    });
-    ["moh643", "moh729", "moh730"].forEach((k) =>
-      renderMetricCards(k, byKey[k]),
-    );
-    if (state.data) {
-      // upgrade the overview with the metric story now that it has arrived
-      renderFormCards(state.data);
-      renderMetricsStory();
-    }
-  } catch (err) {
-    // cards stay as placeholders; rates already rendered
+function renderMetricSummary() {
+  const byKey = {};
+  (state.metrics.forms || []).forEach((f) => {
+    byKey[f.key] = f;
+  });
+  ["moh643", "moh729", "moh730"].forEach((k) => renderMetricCards(k, byKey[k]));
+  if (state.data) {
+    // upgrade the overview with the metric story now that it has arrived
+    renderFormCards(state.data);
+    renderMetricsStory();
   }
 }
 
@@ -673,7 +673,7 @@ function renderMetricsStory() {
         <div class="metric-head">
           <h3>Metric reporting <span class="muted small">— tracked 2023-version metrics</span></h3>
         </div>
-        <p class="muted small">Loading metric detail from KHIS… (first load takes about a minute, then it's cached)</p>
+        <p class="muted small">Fetching metric detail — the first load of a month takes a few seconds, then it's cached.</p>
       </div>`;
     return;
   }

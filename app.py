@@ -106,7 +106,7 @@ def _form_title(key):
     return next((f["title"] for f in config.MOH_FORMS if f["key"] == key), key)
 
 
-def _metrics_summary_for_scope(facility_rows, period):
+def _metrics_summary_for_scope(facility_rows, period, county_ids=None):
     """Per-form metric reporting summary across a facility scope.
 
     For every form, counts how many of the tracked (2023-version) metrics
@@ -117,6 +117,9 @@ def _metrics_summary_for_scope(facility_rows, period):
       reported_facility_metrics — sum over facilities of reported metrics
       overall_metric_rate — reported / (facilities * total_metrics)
       metrics             — per-metric coverage {name, id, reported, total}
+
+    county_ids lets large scopes use the county-wide bulk fetch (a handful of
+    KHIS calls instead of one per facility).
     """
     datasets = khis_client.resolve_moh_dataset_ids()
     facility_ids = [r["facility_id"] for r in facility_rows]
@@ -134,9 +137,9 @@ def _metrics_summary_for_scope(facility_rows, period):
                 "error": "dataset unresolved" if not ds else None,
             })
             continue
-        counts = khis_client.fetch_metric_reporting(
-            ds["id"], period, facility_ids, config.TARGET_REVISION)
-        if not counts:
+        sets, total, name_map = khis_client.reported_metric_sets(
+            ds["id"], period, facility_ids, county_ids, config.TARGET_REVISION)
+        if not sets or not total:
             forms.append({
                 "key": form["key"], "title": form["title"],
                 "version": config.TARGET_REVISION,
@@ -146,19 +149,21 @@ def _metrics_summary_for_scope(facility_rows, period):
                 "metrics": [], "error": "no data",
             })
             continue
-        total = next(iter(counts.values()))["total"]
-        any_reported = sum(1 for c in counts.values() if c["reported"] > 0)
-        reported_metrics = sum(c["reported"] for c in counts.values())
-        per_metric = {}
-        for f_row in facility_rows:
-            fv = khis_client.fetch_facility_form_values(
-                ds["id"], period, f_row["facility_id"], config.TARGET_REVISION)
-            for m in fv.get("metrics") or []:
-                pm = per_metric.setdefault(m["name"], {"name": m["name"], "id": m["id"], "reported": 0, "total": 0})
-                pm["total"] += 1
-                if m["reported"]:
+        any_reported = sum(1 for s in sets.values() if s)
+        reported_metrics = sum(len(s) for s in sets.values())
+        # per-metric coverage across the scope (every tracked metric seeded)
+        per_metric = {
+            de_id: {"name": nm, "id": de_id, "reported": 0, "total": len(facility_rows)}
+            for de_id, nm in name_map.items()
+        }
+        for s in sets.values():
+            for de_id in s:
+                pm = per_metric.get(de_id)
+                if pm:
                     pm["reported"] += 1
-        metric_rows = sorted(per_metric.values(), key=lambda m: (m["reported"] / m["total"] if m["total"] else 0, m["name"]))
+        metric_rows = sorted(
+            per_metric.values(),
+            key=lambda m: (m["reported"] / m["total"] if m["total"] else 0, m["name"]))
         forms.append({
             "key": form["key"], "title": form["title"],
             "version": config.TARGET_REVISION,
@@ -193,11 +198,19 @@ def health():
     return jsonify({"ok": True, "app": "jt-reporting-rates", "time": time.time()})
 
 
+def _scope_counties(county_id):
+    """Counties whose data is needed for the current scope."""
+    if county_id:
+        return [county_id]
+    return [c["id"] for c in _load_hierarchy()["counties"]]
+
+
 @app.get("/api/locations")
 def locations():
     h = _load_hierarchy()
     khis_ok = khis_client.khis_reachable()
     datasets = khis_client.resolve_moh_dataset_ids()
+    khis_client.ensure_default_period()
     return jsonify({
         "counties": h["counties"],
         "subcounties": h["subcounties"],
@@ -207,13 +220,13 @@ def locations():
         "khis_ok": khis_ok,
         "datasets": datasets,
         "periods": config.PERIODS,
-        "default_period": config.DEFAULT_PERIOD,
+        "default_period": khis_client.current_default_period(),
     })
 
 
 @app.get("/api/reporting-rates")
 def reporting_rates():
-    period = request.args.get("period", config.DEFAULT_PERIOD)
+    period = request.args.get("period") or khis_client.current_default_period()
     county_id = request.args.get("county_id") or None
     subcounty_id = request.args.get("subcounty_id") or None
     ward_id = request.args.get("ward_id") or None
@@ -223,11 +236,7 @@ def reporting_rates():
     facility_ids = [r["facility_id"] for r in rows]
 
     # counties to query for completions: the selected one, or all four
-    h = _load_hierarchy()
-    if county_id:
-        counties = [county_id]
-    else:
-        counties = [c["id"] for c in h["counties"]]
+    counties = _scope_counties(county_id)
 
     datasets = khis_client.resolve_moh_dataset_ids()
     khis_ok = khis_client.khis_reachable()
@@ -295,7 +304,7 @@ def reporting_rates():
 def facility_form():
     """Exact submitted form values for one facility + form + month (drill-down)."""
     form_key = request.args.get("form")
-    period = request.args.get("period", config.DEFAULT_PERIOD)
+    period = request.args.get("period") or khis_client.current_default_period()
     facility_id = request.args.get("facility_id")
     valid_keys = {f["key"] for f in config.MOH_FORMS}
     if not facility_id or form_key not in valid_keys:
@@ -336,14 +345,15 @@ def facility_form():
 @app.get("/api/metrics-summary")
 def metrics_summary():
     """Per-MOH metric reporting cards + per-metric coverage for the scope."""
-    period = request.args.get("period", config.DEFAULT_PERIOD)
+    period = request.args.get("period") or khis_client.current_default_period()
     county_id = request.args.get("county_id") or None
     subcounty_id = request.args.get("subcounty_id") or None
     ward_id = request.args.get("ward_id") or None
     facility_id = request.args.get("facility_id") or None
 
     rows = _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id)
-    forms = _metrics_summary_for_scope(rows, period)
+    counties = _scope_counties(county_id)
+    forms = _metrics_summary_for_scope(rows, period, counties)
     return jsonify({
         "period": period,
         "version": config.TARGET_REVISION,
@@ -370,7 +380,7 @@ def facility_metrics():
     value (or 'not reported'), so you can see exactly how many of each metric
     per dataset were reported for the facility + month.
     """
-    period = request.args.get("period", config.DEFAULT_PERIOD)
+    period = request.args.get("period") or khis_client.current_default_period()
     facility_id = request.args.get("facility_id")
     if not facility_id:
         return jsonify({"error": "facility_id is required"}), 400
@@ -423,4 +433,9 @@ def facility_metrics():
 
 if __name__ == "__main__":
     print(f"JT Reporting Rates app on http://{config.HOST}:{config.PORT}")
+    app.run(host=config.HOST, port=config.PORT, debug=False, threaded=True)
+else:
+    # Under gunicorn: resolve the latest closed month and warm its caches in
+    # the background so the first visitor is served from cache.
+    khis_client.start_background_jobs()
     app.run(host=config.HOST, port=config.PORT, debug=False, threaded=True)
