@@ -595,10 +595,13 @@ def commodity_facilities():
 
 
 if __name__ == "__main__":
+    # Local development: warm the caches in the background, then serve.
     print(f"JT Reporting Rates app on http://{config.HOST}:{config.PORT}")
-    app.run(host=config.HOST, port=config.PORT, debug=False, threaded=True)
-else:
-    # Under gunicorn: resolve the latest closed month and warm its caches in
-    # the background so the first visitor is served from cache.
     khis_client.start_background_jobs()
     app.run(host=config.HOST, port=config.PORT, debug=False, threaded=True)
+else:
+    # Imported by a WSGI server (gunicorn). Do NOT call app.run() here: the
+    # server owns the socket, and binding it inside the import would block the
+    # worker before the server can start. Just warm the caches in the
+    # background so the first visitor is served from cache.
+    khis_client.start_background_jobs()
