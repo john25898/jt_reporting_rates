@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jamii Tekelezi — Facility Reporting Rates</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=17" />
   </head>
   <body>
     <header class="app-header">
@@ -12,10 +12,10 @@
         <div class="brand">
           <span class="brand-mark">JT</span>
           <div>
-            <h1>Jamii Tekelezi — Facility Reporting Rates</h1>
+            <h1>Daraja &amp; Jamii Tekelezi — Facility Reporting Rates</h1>
             <p class="subtitle">
               MOH 643 B - 2023 · MOH 729 - 2023 · MOH 730 B - 2023 &nbsp;|&nbsp;
-              Version 2023 metrics only
+              Version 2023 metrics + tracer consumption &amp; balances
             </p>
           </div>
         </div>
@@ -30,7 +30,7 @@
           <label
             >Scope
             <select id="scope-select">
-              <option value="all">All Jamii Tekelezi Facilities</option>
+              <option value="daraja">Daraja Facilities</option>
             </select>
           </label>
           <label
@@ -86,8 +86,10 @@
       <section id="tab-overview" class="tab-panel active">
         <div id="overview-hero"></div>
         <div id="overview-cards" class="cards-grid"></div>
+        <div id="overview-commodities"></div>
         <div id="overview-metrics"></div>
         <div id="overview-counties"></div>
+        <div id="overview-commodity-facilities"></div>
         <div class="card">
           <div class="metric-head">
             <h3>
@@ -128,10 +130,11 @@
     </main>
 
     <footer class="app-footer">
-      Jamii Tekelezi Reporting Rates — independent reporting dashboard · Data
-      source: Kenya HIS (KHIS) dataset completeness
+      Daraja &amp; Jamii Tekelezi Reporting Rates — independent reporting
+      dashboard · Data source: Kenya HIS (KHIS) dataset completeness, MOH 730B
+      (ARVs) &amp; MOH 643B (lab) commodity returns
     </footer>
 
-    <script src="app.js?v=14"></script>
+    <script src="app.js?v=17"></script>
   </body>
 </html>

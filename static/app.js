@@ -1,4 +1,4 @@
-/* Jamii Tekelezi Reporting Rates — app logic (vanilla JS, no build step) */
+/* Jamii Tekelezi / Daraja Reporting Rates — app logic (vanilla JS, no build step) */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -6,6 +6,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   locations: null,
   period: "202607",
+  scopeKey: "daraja", // roster selector: daraja | jt (see /api/locations -> scopes)
   scope: {
     county_id: null,
     subcounty_id: null,
@@ -14,6 +15,9 @@ const state = {
   },
   data: null,
   metrics: null, // /api/metrics-summary payload (per-MOH metric cards)
+  commodities: null, // /api/commodities payload (tracer consumption + balances)
+  commodityFacilities: null, // /api/commodity-facilities payload (drill-down)
+  selectedCommodity: null, // commodity element id currently drilled into
   sort: { key: "rate", dir: -1 }, // per-MOH table sort
 };
 
@@ -36,6 +40,34 @@ function fmtMonth(ym) {
   const y = ym.slice(0, 4);
   const m = parseInt(ym.slice(4, 6), 10) - 1;
   return `${MONTH_NAMES[m] || "?"} ${y}`;
+}
+
+function fmtNum(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!isFinite(n)) return "—";
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function rosterLabel() {
+  const scopes = (state.locations && state.locations.scopes) || [];
+  const hit = scopes.find((s) => s.key === state.scopeKey);
+  return hit ? hit.label : "facilities";
+}
+
+/* Query string carrying the active roster scope + period + hierarchy scope. */
+function apiParams(extra) {
+  const p = new URLSearchParams({
+    scope: state.scopeKey,
+    period: state.period,
+  });
+  const s = state.scope || {};
+  if (s.county_id) p.set("county_id", s.county_id);
+  if (s.subcounty_id) p.set("subcounty_id", s.subcounty_id);
+  if (s.ward_id) p.set("ward_id", s.ward_id);
+  if (s.facility_id) p.set("facility_id", s.facility_id);
+  if (extra) Object.entries(extra).forEach(([k, v]) => p.set(k, v));
+  return p;
 }
 
 /* ---------------- Form documentation ---------------- */
@@ -226,8 +258,12 @@ function renderFormInfo(key) {
 /* ---------------- Locations / filter cascade ---------------- */
 
 async function loadLocations() {
-  const res = await fetch(`/api/locations?cb=${Date.now()}`);
+  const res = await fetch(
+    `/api/locations?scope=${encodeURIComponent(state.scopeKey)}&cb=${Date.now()}`,
+  );
   state.locations = await res.json();
+
+  renderScopeOptions();
 
   const periodSel = $("period-select");
   periodSel.innerHTML = "";
@@ -244,6 +280,30 @@ async function loadLocations() {
   renderCountyOptions();
   updateScopeSummary();
   loadRates();
+}
+
+/* Roster (scope) selector — Daraja facilities vs Jamii Tekelezi facilities */
+function renderScopeOptions() {
+  const sel = $("scope-select");
+  const scopes = state.locations.scopes || [];
+  if (!scopes.length) return;
+  if (!scopes.some((s) => s.key === state.scopeKey)) {
+    state.scopeKey = scopes[0].key;
+  }
+  sel.innerHTML = scopes
+    .map(
+      (s) =>
+        `<option value="${s.key}" ${s.key === state.scopeKey ? "selected" : ""}>${escapeHtml(s.label)}</option>`,
+    )
+    .join("");
+}
+
+function onScopeChange() {
+  state.scopeKey = $("scope-select").value || "daraja";
+  state.selectedCommodity = null;
+  state.commodityFacilities = null;
+  resetLevels("county");
+  loadLocations();
 }
 
 function renderStatus(loc) {
@@ -375,19 +435,15 @@ function updateScopeSummary() {
   ].filter((t) => t && !t.startsWith("All "));
   $("scope-summary").textContent = names.length
     ? `Scope: ${names.join(" → ")}`
-    : `Scope: All ${state.locations?.total_facilities ?? ""} Jamii Tekelezi facilities`;
+    : `Scope: All ${state.locations?.total_facilities ?? ""} ${rosterLabel()}`;
 }
 
 /* ---------------- Reporting rates ---------------- */
 
 async function loadRates() {
   state.metrics = null; // stale metric summaries must not linger across scopes
-  const p = new URLSearchParams({ period: state.period, cb: Date.now() });
-  const s = state.scope;
-  if (s.county_id) p.set("county_id", s.county_id);
-  if (s.subcounty_id) p.set("subcounty_id", s.subcounty_id);
-  if (s.ward_id) p.set("ward_id", s.ward_id);
-  if (s.facility_id) p.set("facility_id", s.facility_id);
+  const p = apiParams();
+  p.set("cb", Date.now());
 
   $("loading").classList.remove("hidden");
 
@@ -414,6 +470,10 @@ async function loadRates() {
     state.metrics = await metricsRes.value.json();
     renderMetricSummary();
   }
+
+  // Tracer commodity consumption & balances — slowest call (county-bulk), so
+  // it is fired last and renders on arrival without blocking anything above.
+  loadCommodities();
 }
 
 /* Per-MOH metric reporting cards (tracked 2023-version metrics only) */
@@ -455,8 +515,10 @@ function renderAll() {
 function renderOverview(d) {
   $("overview-hero").innerHTML = renderHero(d);
   renderFormCards(d);
+  renderCommodities();
   renderMetricsStory();
   renderCountyMatrix(d);
+  renderCommodityFacilityTable();
   renderFacilityList(d);
 }
 
@@ -1088,7 +1150,7 @@ function formatNum(v) {
 /* Clicking a facility row opens a dedicated page showing how many of each
    metric per dataset were reported for that facility + month. */
 function openFacilityPage(key, form, fid) {
-  const url = `/facility?facility_id=${encodeURIComponent(fid)}&period=${state.period}`;
+  const url = `/facility?facility_id=${encodeURIComponent(fid)}&period=${state.period}&scope=${encodeURIComponent(state.scopeKey)}`;
   window.open(url, "_blank");
 }
 
@@ -1140,6 +1202,257 @@ function renderMetricCards(key, mf) {
     </div>`;
 }
 
+/* ---------------- Tracer commodity consumption & balances ---------------- */
+
+/* Column keys the backend highlights per tracer (consumption + closing stock).
+   Flask sorts JSON object keys alphabetically, so the display order is fixed
+   here rather than relying on the payload's key order. */
+const HIGHLIGHT_ORDER = [
+  "consumed",
+  "closing",
+  "tests",
+  "beginning",
+  "received",
+];
+const HIGHLIGHT_META = {
+  consumed: { label: "Consumed this month", cls: "consumed" },
+  closing: { label: "Closing balance", cls: "closing" },
+  beginning: { label: "Beginning balance", cls: "beginning" },
+  tests: { label: "Tests done", cls: "tests" },
+  received: { label: "Received", cls: "received" },
+};
+
+function orderHighlight(keys) {
+  return (keys || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (HIGHLIGHT_ORDER.indexOf(a) + 1 || 99) -
+        (HIGHLIGHT_ORDER.indexOf(b) + 1 || 99),
+    );
+}
+
+async function loadCommodities() {
+  const wrap = $("overview-commodities");
+  if (wrap) {
+    wrap.innerHTML = `
+      <div class="card ov-placeholder">
+        <h3>Tracer commodity consumption &amp; balances</h3>
+        <p class="muted small">Fetching MOH 730B (ARVs) and MOH 643B (lab) commodity returns for the ${state.locations?.total_facilities ?? ""} facilities in scope. The first load of a month reads KHIS county-by-county and takes a few seconds; after that it is cached.</p>
+      </div>`;
+  }
+  state.commodityFacilities = null;
+  let res;
+  try {
+    res = await fetch(`/api/commodities?${apiParams({ cb: Date.now() })}`);
+  } catch (e) {
+    state.commodities = null;
+    renderCommodities();
+    return;
+  }
+  if (!res.ok) {
+    state.commodities = null;
+    renderCommodities();
+    return;
+  }
+  state.commodities = await res.json();
+  renderCommodities();
+}
+
+function renderCommodities() {
+  const wrap = $("overview-commodities");
+  if (!wrap) return;
+  const d = state.commodities;
+  if (!d) {
+    wrap.innerHTML = `
+      <div class="card ov-placeholder">
+        <h3>Tracer commodity consumption &amp; balances</h3>
+        <p class="muted small">Commodity returns unavailable right now (KHIS did not answer). Use Refresh to retry.</p>
+      </div>`;
+    return;
+  }
+  const groups = (d.groups || []).filter((g) => (g.commodities || []).length);
+  if (!groups.length) {
+    wrap.innerHTML = `
+      <div class="card ov-placeholder">
+        <h3>Tracer commodity consumption &amp; balances</h3>
+        <p class="muted small">No tracer commodity data reported for this scope in ${fmtMonth(d.period)}.</p>
+      </div>`;
+    return;
+  }
+
+  const cardHtml = (c, groupKey) => {
+    const hl = c.highlight || {};
+    const sel = state.selectedCommodity === c.id;
+    const coverage = c.facilities_tracked
+      ? Math.round((100 * c.facilities_reported) / c.facilities_tracked)
+      : 0;
+    const hlHtml = orderHighlight(Object.keys(hl))
+      .map((k) => {
+        const meta = HIGHLIGHT_META[k] || { label: k, cls: "" };
+        return `<div class="tc-stat ${meta.cls}">
+            <span class="tc-stat-label">${escapeHtml(meta.label)}</span>
+            <span class="tc-stat-value">${fmtNum(hl[k])}</span>
+          </div>`;
+      })
+      .join("");
+    return `
+      <div class="card tracer-card ${sel ? "selected" : ""} ${coverage === 0 ? "empty" : ""}"
+           data-commodity="${c.id}" data-group="${groupKey}" role="button" tabindex="0">
+        <div class="tc-head">
+          <h4 title="${escapeHtml(c.label)}">${escapeHtml(c.label)}</h4>
+          <span class="tc-src">${escapeHtml(groupKey)}</span>
+        </div>
+        <div class="tc-stats">${hlHtml}</div>
+        <div class="tc-foot">
+          <div class="cov-bar"><div class="cov-fill ${coverage >= 80 ? "bar-good" : coverage >= 50 ? "bar-warn" : "bar-bad"}" style="width:${coverage}%"></div></div>
+          <span class="muted small">${c.facilities_reported} of ${c.facilities_tracked} facilities reported (${coverage}%)</span>
+        </div>
+      </div>`;
+  };
+
+  wrap.innerHTML = `
+    <div class="card ov-commodity-block">
+      <div class="metric-head">
+        <h3>Tracer commodity consumption &amp; balances <span class="muted small">— ${fmtMonth(d.period)}</span></h3>
+        <span class="muted small">Each tracer tracked individually across ${(d.scope || {}).facility_count ?? ""} facilities in scope. Figures are sums across facilities; different pack sizes stay separate. Click any tracer to list every facility.</span>
+      </div>
+      ${groups
+        .map(
+          (g) => `
+        <div class="tc-group">
+          <div class="tc-group-head">
+            <h4>${escapeHtml(g.label)}</h4>
+            <span class="muted small">${escapeHtml(g.form_title || "")}${g.unit_note ? " · " + escapeHtml(g.unit_note) : ""}</span>
+          </div>
+          <div class="cards-grid tracer-grid">
+            ${g.commodities.map((c) => cardHtml(c, g.key)).join("")}
+          </div>
+        </div>`,
+        )
+        .join("")}
+    </div>`;
+
+  wrap.querySelectorAll("[data-commodity]").forEach((el) => {
+    const go = () => selectCommodity(el.dataset.commodity);
+    el.addEventListener("click", go);
+    el.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        go();
+      }
+    });
+  });
+
+  // keep an open drill-down in sync with the new scope / period
+  const stillThere =
+    state.selectedCommodity &&
+    groups.some((g) =>
+      (g.commodities || []).some((c) => c.id === state.selectedCommodity),
+    );
+  if (stillThere) {
+    selectCommodity(state.selectedCommodity);
+  } else {
+    state.selectedCommodity = null;
+    state.commodityFacilities = null;
+    const holder = $("overview-commodity-facilities");
+    if (holder) holder.innerHTML = "";
+  }
+}
+
+async function selectCommodity(id) {
+  state.selectedCommodity = id;
+  state.commodityFacilities = null;
+  document
+    .querySelectorAll("#overview-commodities [data-commodity]")
+    .forEach((el) =>
+      el.classList.toggle("selected", el.dataset.commodity === id),
+    );
+
+  const holder = $("overview-commodity-facilities");
+  if (holder) {
+    holder.innerHTML = `<div class="card"><h3>Per-facility tracer detail</h3><p class="muted small">Loading every facility reporting this commodity…</p></div>`;
+  }
+  let res;
+  try {
+    res = await fetch(
+      `/api/commodity-facilities?${apiParams({ commodity_id: id, cb: Date.now() })}`,
+    );
+  } catch (e) {
+    res = null;
+  }
+  if (!res || !res.ok) {
+    if (holder) {
+      holder.innerHTML = `<div class="card"><h3>Per-facility tracer detail</h3><p class="muted small">Could not load facility-level detail for this commodity. Use Refresh to retry.</p></div>`;
+    }
+    return;
+  }
+  state.commodityFacilities = await res.json();
+  renderCommodityFacilityTable();
+}
+
+function renderCommodityFacilityTable() {
+  const holder = $("overview-commodity-facilities");
+  if (!holder) return;
+  const d = state.commodityFacilities;
+  if (!d) {
+    holder.innerHTML = "";
+    return;
+  }
+  const hl = d.highlight_keys || ["consumed", "closing"];
+  const cols = d.columns || [];
+  // highlighted columns (consumption first) lead, then the remaining fields
+  const rank = (k) => {
+    const i = orderHighlight(hl).indexOf(k);
+    return i === -1 ? 99 : i;
+  };
+  const ordered = cols
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => rank(a.c.key) - rank(b.c.key) || a.i - b.i)
+    .map((x) => x.c);
+  const head = ordered
+    .map(
+      (c) =>
+        `<th class="num ${hl.includes(c.key) ? "hl-col" : ""}" title="${escapeHtml(c.label)}">${escapeHtml(c.short || c.label)}</th>`,
+    )
+    .join("");
+  const rows = (d.facilities || [])
+    .map((f) => {
+      const tds = ordered
+        .map(
+          (c) =>
+            `<td class="num ${hl.includes(c.key) ? "hl-col" : ""}">${fmtNum(f.values ? f.values[c.key] : null)}</td>`,
+        )
+        .join("");
+      return `<tr class="${f.reported ? "" : "row-muted"}">
+        <td class="fac-name">${escapeHtml(f.facility_name)}<span class="muted small"> · ${escapeHtml(f.subcounty_name || "")}, ${escapeHtml(f.county_name || "")}</span></td>
+        ${tds}
+        <td class="num">${f.reported ? '<span class="pill ok">reported</span>' : '<span class="pill none">no data</span>'}</td>
+      </tr>`;
+    })
+    .join("");
+  const totTds = ordered
+    .map(
+      (c) =>
+        `<td class="num ${hl.includes(c.key) ? "hl-col" : ""}">${fmtNum(d.totals ? d.totals[c.key] : null)}</td>`,
+    )
+    .join("");
+  holder.innerHTML = `
+    <div class="card">
+      <div class="metric-head">
+        <h3>${escapeHtml((d.commodity || {}).label || "Tracer")} — per-facility detail <span class="muted small">— ${fmtMonth(d.period)} · ${escapeHtml((d.commodity || {}).form_title || "")}</span></h3>
+        <span class="muted small">Every facility in scope, facilities that reported first. Consumption and closing balance are highlighted. Totals sum across facilities.</span>
+      </div>
+      <div class="table-scroll">
+        <table class="metric-table tracer-table">
+          <thead><tr><th>Facility</th>${head}<th class="num">Status</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="99" class="muted">No facilities reported this commodity for the selected month and scope.</td></tr>'}</tbody>
+          <tfoot><tr><td>Scope total</td>${totTds}<td class="num">${(d.facilities || []).filter((f) => f.reported).length} reported</td></tr></tfoot>
+        </table>
+      </div>
+    </div>`;
+}
+
 /* ---------------- Tabs & misc ---------------- */
 
 function switchTab(tab) {
@@ -1162,6 +1475,7 @@ function showError(msg) {
 /* ---------------- init ---------------- */
 
 document.addEventListener("DOMContentLoaded", () => {
+  $("scope-select").addEventListener("change", onScopeChange);
   $("county-select").addEventListener("change", onCountyChange);
   $("subcounty-select").addEventListener("change", onSubcountyChange);
   $("ward-select").addEventListener("change", onWardChange);

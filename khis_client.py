@@ -159,18 +159,21 @@ _default_thread_lock = threading.Lock()
 _default_period = None    # best-known default (module global)
 
 
-def _jt_county_ids():
-    """County ids of the JT scope (lazy, from the filters CSV)."""
-    cached = getattr(_jt_county_ids, "_cache", None)
-    if cached is None:
+def _jt_county_ids(scope=None):
+    """County ids of a roster scope (lazy, from its filters CSV)."""
+    scope = config.normalize_scope(scope)
+    cache = getattr(_jt_county_ids, "_cache", None)
+    if cache is None:
+        cache = {}
+        _jt_county_ids._cache = cache
+    if scope not in cache:
         try:
             import pandas as pd
-            df = pd.read_csv(config.FILTERS_CSV)
-            cached = list(dict.fromkeys(df["county_id"].tolist()))
+            df = pd.read_csv(config.filters_csv(scope))
+            cache[scope] = list(dict.fromkeys(df["county_id"].tolist()))
         except Exception:
-            cached = []
-        _jt_county_ids._cache = cached
-    return cached
+            cache[scope] = []
+    return cache[scope]
 
 
 def _prev_calendar_months(n):
@@ -609,20 +612,123 @@ def khis_reachable():
 
 
 # --------------------------------------------------------------------------
+# Tracer commodity consumption & balances (MOH 730B / 643B)
+# --------------------------------------------------------------------------
+# Every commodity data element (e.g. TLD 90s) is one *row* of the form; the
+# row's columns — Beginning balance, Received, Issued/Used, Closing count,
+# Days out of stock … — are categoryOptionCombos (see config.COMMODITY_COLUMNS).
+# dataValueSets therefore returns several rows per (facility, commodity), one
+# per column, and we fold them into {facility: {commodity: {column: value}}}.
+
+def _tracer_hash(form_key):
+    ids = sorted(config.commodity_elements_for(form_key))
+    return hashlib.md5(",".join(ids).encode()).hexdigest()[:8]
+
+
+def _commodity_cache_path(ds_id, period, county_id, form_key):
+    return os.path.join(
+        config.COMMODITY_CACHE_DIR,
+        f"{ds_id}_{period}_{county_id}_{_tracer_hash(form_key)}.json")
+
+
+def _county_commodity_matrix(form_key, ds_id, period, county_id):
+    """{ou_id: {de_id: {column_key: value}}} for one county (cached 12h)."""
+    path = _commodity_cache_path(ds_id, period, county_id, form_key)
+    if _cache_valid(path):
+        cached = _read_json(path)
+        if cached is not None:
+            return cached.get("ous") or {}
+
+    elements = set(config.commodity_elements_for(form_key))
+    d = khis_get("dataValueSets.json", {
+        "dataSet": ds_id, "period": period, "orgUnit": county_id,
+        "children": "true", "paging": "false"})
+    if d is None:
+        # KHIS failed — do NOT persist an empty result, it would look like
+        # "nobody reported anything" for the whole cache window.
+        return {}
+
+    ous = {}
+    for v in d.get("dataValues") or []:
+        de = v.get("dataElement")
+        if de not in elements:
+            continue
+        col = config.commodity_column_key(form_key, v.get("categoryOptionCombo"))
+        if not col:
+            continue
+        raw = v.get("value")
+        try:
+            num = float(raw) if raw not in (None, "") else 0.0
+        except (TypeError, ValueError):
+            continue
+        bucket = ous.setdefault(v.get("orgUnit"), {}).setdefault(de, {})
+        bucket[col] = bucket.get(col, 0.0) + num
+
+    _write_json(path, {"ts": time.time(), "ous": ous})
+    return ous
+
+
+def fetch_commodity_matrix(form_key, period, county_ids):
+    """{ou_id: {de_id: {column_key: value}}} merged across counties.
+
+    One KHIS call per county (disk-cached 12h) instead of one per facility.
+    Returns {} when the scope has no counties / the dataset is unresolved.
+    """
+    ds = resolve_moh_dataset_ids().get(form_key)
+    county_ids = [c for c in (county_ids or []) if c]
+    if not ds or not county_ids:
+        return {}
+
+    def _one(cid):
+        return _county_commodity_matrix(form_key, ds["id"], period, cid)
+
+    merged = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(county_ids))) as ex:
+        for ous in ex.map(_one, county_ids):
+            for ou, by_de in ous.items():
+                tgt = merged.setdefault(ou, {})
+                for de, cols in by_de.items():
+                    b = tgt.setdefault(de, {})
+                    for k, v in cols.items():
+                        b[k] = b.get(k, 0.0) + v
+    return merged
+
+
+def commodity_scope_matrix(period, facility_ids, county_ids, forms=None):
+    """Matrix restricted to a facility scope, ready for aggregation.
+
+    {ou_id: {form_key: {de_id: {column: value}}}}
+    Pass `forms` to fetch only the datasets you actually need.
+    """
+    wanted = set(facility_ids or ())
+    forms = forms or sorted({t["form"] for t in config.COMMODITY_TRACERS})
+    out = {}
+    for form in forms:
+        matrix = fetch_commodity_matrix(form, period, county_ids)
+        for ou, by_de in matrix.items():
+            if wanted and ou not in wanted:
+                continue
+            out.setdefault(ou, {})[form] = by_de
+    return out
+
+
+# --------------------------------------------------------------------------
 # Background warm (default month across the whole JT scope)
 # --------------------------------------------------------------------------
-def warm_default_scope(period=None):
-    """Pre-fetch reporting rates + bulk metric detail for the default month
-    across all JT facilities so the first page load (or a month change) is
-    served from cache. Cheap when caches are already valid; returns quickly.
+def warm_default_scope(period=None, scope=None):
+    """Pre-fetch reporting rates + bulk metric detail + tracer commodities for
+    the default month across a whole roster scope, so the first page load (or
+    a month change) is served from cache. Cheap when caches are already valid;
+    returns quickly.
     """
+    scope = config.normalize_scope(scope)
     period = period or current_default_period()
-    county_ids = _jt_county_ids()
+    county_ids = _jt_county_ids(scope)
     if not county_ids:
         return
     try:
         import pandas as pd
-        df = pd.read_csv(config.FILTERS_CSV)
+        df = pd.read_csv(config.filters_csv(scope))
         facility_ids = list(dict.fromkeys(df["facility_id"].tolist()))
     except Exception:
         return
@@ -635,6 +741,11 @@ def warm_default_scope(period=None):
         fetch_reporting_rates(ds["id"], facility_ids, period, county_ids)
         # metric detail — county-wide bulk fetch, cached 12h, no-op when valid
         reported_metric_sets(ds["id"], period, facility_ids, county_ids)
+    # tracer commodities (consumption & balances) — county-wide, cached 12h
+    for form in sorted({t["form"] for t in config.COMMODITY_TRACERS}):
+        if not datasets.get(form):
+            continue
+        fetch_commodity_matrix(form, period, county_ids)
 
 
 def start_background_jobs():
@@ -652,7 +763,8 @@ def start_background_jobs():
     def _job():
         try:
             _resolve_default_period()
-            warm_default_scope()
+            warm_default_scope(period=current_default_period(),
+                               scope=config.DEFAULT_SCOPE)
         except Exception:
             pass
 

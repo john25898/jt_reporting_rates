@@ -20,22 +20,29 @@ import khis_client
 app = Flask(__name__, static_folder="static", static_url_path="")
 
 # --------------------------------------------------------------------------
-# Facility hierarchy (from the JT filters CSV — authoritative source)
+# Facility hierarchy (from a roster CSV — one per scope)
 # --------------------------------------------------------------------------
+# Two rosters ship in data/ (see config.SCOPES):
+#   daraja — 259 Daraja-supported facilities across 15 counties (+ a few
+#            legacy JT sites that are no longer in the Daraja census)
+#   jt     — the original 200 Jamii Tekelezi facilities across 4 counties
+# Each is loaded and cached independently so the cascade filters always show
+# the counties / sub-counties / wards / facilities of the active scope.
 
 _hierarchy_lock = threading.Lock()
-_hierarchy = None
-_hierarchy_loaded_at = 0
+_hierarchies = {}  # scope -> {"h": hierarchy, "at": loaded_ts}
+_HIERARCHY_TTL = 300
 
 
-def _load_hierarchy():
-    """Load counties/subcounties/wards/facilities from the filters CSV."""
-    global _hierarchy, _hierarchy_loaded_at
+def _load_hierarchy(scope=None):
+    """Load counties/subcounties/wards/facilities for a roster scope."""
+    scope = config.normalize_scope(scope)
     now = time.time()
-    if _hierarchy is not None and now - _hierarchy_loaded_at < 300:
-        return _hierarchy
     with _hierarchy_lock:
-        df = pd.read_csv(config.FILTERS_CSV)
+        ent = _hierarchies.get(scope)
+        if ent and now - ent["at"] < _HIERARCHY_TTL:
+            return ent["h"]
+        df = pd.read_csv(config.filters_csv(scope))
         h = {
             "counties": [], "subcounties": [], "wards": [], "facilities": [],
             "facility_lookup": {},  # facility_id -> row
@@ -76,13 +83,17 @@ def _load_hierarchy():
         h["counties"].sort(key=lambda x: x["name"])
         for lst in (h["subcounties"], h["wards"], h["facilities"]):
             lst.sort(key=lambda x: x["name"])
-        _hierarchy = h
-        _hierarchy_loaded_at = now
-    return _hierarchy
+        _hierarchies[scope] = {"h": h, "at": now}
+        return h
 
 
-def _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id):
-    h = _load_hierarchy()
+def _request_scope():
+    """Scope key for the current request (defaults to the Daraja roster)."""
+    return config.normalize_scope(request.args.get("scope"))
+
+
+def _facilities_in_scope(scope, county_id, subcounty_id, ward_id, facility_id):
+    h = _load_hierarchy(scope)
     if facility_id:
         rows = [h["facility_lookup"].get(facility_id)]
         return [r for r in rows if r]
@@ -198,20 +209,23 @@ def health():
     return jsonify({"ok": True, "app": "jt-reporting-rates", "time": time.time()})
 
 
-def _scope_counties(county_id):
+def _scope_counties(scope, county_id):
     """Counties whose data is needed for the current scope."""
     if county_id:
         return [county_id]
-    return [c["id"] for c in _load_hierarchy()["counties"]]
+    return [c["id"] for c in _load_hierarchy(scope)["counties"]]
 
 
 @app.get("/api/locations")
 def locations():
-    h = _load_hierarchy()
+    scope = _request_scope()
+    h = _load_hierarchy(scope)
     khis_ok = khis_client.khis_reachable()
     datasets = khis_client.resolve_moh_dataset_ids()
     khis_client.ensure_default_period()
     return jsonify({
+        "scope": scope,
+        "scopes": [{"key": s["key"], "label": s["label"]} for s in config.SCOPES],
         "counties": h["counties"],
         "subcounties": h["subcounties"],
         "wards": h["wards"],
@@ -226,17 +240,19 @@ def locations():
 
 @app.get("/api/reporting-rates")
 def reporting_rates():
+    scope = _request_scope()
     period = request.args.get("period") or khis_client.current_default_period()
     county_id = request.args.get("county_id") or None
     subcounty_id = request.args.get("subcounty_id") or None
     ward_id = request.args.get("ward_id") or None
     facility_id = request.args.get("facility_id") or None
 
-    rows = _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id)
+    rows = _facilities_in_scope(scope, county_id, subcounty_id, ward_id, facility_id)
     facility_ids = [r["facility_id"] for r in rows]
 
-    # counties to query for completions: the selected one, or all four
-    counties = _scope_counties(county_id)
+    # counties to query for completions: the selected one, or every county
+    # in the active roster
+    counties = _scope_counties(scope, county_id)
 
     datasets = khis_client.resolve_moh_dataset_ids()
     khis_ok = khis_client.khis_reachable()
@@ -291,6 +307,7 @@ def reporting_rates():
     return jsonify({
         "period": period,
         "khis_ok": khis_ok,
+        "roster": scope,
         "scope": {
             "county_id": county_id, "subcounty_id": subcounty_id,
             "ward_id": ward_id, "facility_id": facility_id,
@@ -310,7 +327,7 @@ def facility_form():
     if not facility_id or form_key not in valid_keys:
         return jsonify({"error": "form and facility_id are required"}), 400
 
-    h = _load_hierarchy()
+    h = _load_hierarchy(_request_scope())
     row = h["facility_lookup"].get(facility_id)
     if not row:
         return jsonify({"error": "unknown facility"}), 404
@@ -345,18 +362,20 @@ def facility_form():
 @app.get("/api/metrics-summary")
 def metrics_summary():
     """Per-MOH metric reporting cards + per-metric coverage for the scope."""
+    scope = _request_scope()
     period = request.args.get("period") or khis_client.current_default_period()
     county_id = request.args.get("county_id") or None
     subcounty_id = request.args.get("subcounty_id") or None
     ward_id = request.args.get("ward_id") or None
     facility_id = request.args.get("facility_id") or None
 
-    rows = _facilities_in_scope(county_id, subcounty_id, ward_id, facility_id)
-    counties = _scope_counties(county_id)
+    rows = _facilities_in_scope(scope, county_id, subcounty_id, ward_id, facility_id)
+    counties = _scope_counties(scope, county_id)
     forms = _metrics_summary_for_scope(rows, period, counties)
     return jsonify({
         "period": period,
         "version": config.TARGET_REVISION,
+        "roster": scope,
         "scope": {
             "county_id": county_id, "subcounty_id": subcounty_id,
             "ward_id": ward_id, "facility_id": facility_id,
@@ -385,7 +404,7 @@ def facility_metrics():
     if not facility_id:
         return jsonify({"error": "facility_id is required"}), 400
 
-    h = _load_hierarchy()
+    h = _load_hierarchy(_request_scope())
     row = h["facility_lookup"].get(facility_id)
     if not row:
         return jsonify({"error": "unknown facility"}), 404
@@ -428,6 +447,150 @@ def facility_metrics():
             "ward_name": row["ward_name"],
         },
         "forms": forms,
+    })
+
+
+# --------------------------------------------------------------------------
+# Tracer commodity consumption & balances (MOH 730B / 643B)
+# --------------------------------------------------------------------------
+
+def _tidy(v):
+    """Float -> int when it is a whole number (keeps JSON readable)."""
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return v
+
+
+def _tracer_by_id(tracer_id):
+    return next((t for t in config.COMMODITY_TRACERS if t["id"] == tracer_id), None)
+
+
+def _commodity_scope_filter():
+    """Shared scope parsing for the two commodity endpoints."""
+    scope = _request_scope()
+    period = request.args.get("period") or khis_client.current_default_period()
+    county_id = request.args.get("county_id") or None
+    subcounty_id = request.args.get("subcounty_id") or None
+    ward_id = request.args.get("ward_id") or None
+    facility_id = request.args.get("facility_id") or None
+    rows = _facilities_in_scope(scope, county_id, subcounty_id, ward_id, facility_id)
+    counties = _scope_counties(scope, county_id)
+    return scope, period, rows, counties, {
+        "county_id": county_id, "subcounty_id": subcounty_id,
+        "ward_id": ward_id, "facility_id": facility_id,
+        "facility_count": len(rows),
+    }
+
+
+@app.get("/api/commodities")
+def commodities():
+    """Scope-wide consumption & closing balance for every tracer commodity.
+
+    Totals are summed across the facilities in the current scope; each tracer
+    is reported individually (one data element = one pack size / presentation)
+    so nothing is silently mixed.
+    """
+    scope, period, rows, counties, scope_obj = _commodity_scope_filter()
+    facility_ids = [r["facility_id"] for r in rows]
+    matrix = khis_client.commodity_scope_matrix(period, facility_ids, counties)
+
+    groups = []
+    for grp in config.COMMODITY_GROUPS:
+        form_key = grp["form"]
+        columns = config.COMMODITY_COLUMNS.get(form_key, [])
+        col_keys = [c["key"] for c in columns]
+        items = []
+        for tracer in config.COMMODITY_TRACERS:
+            if tracer["group"] != grp["key"]:
+                continue
+            totals = {k: 0.0 for k in col_keys}
+            reported = 0
+            for fid in facility_ids:
+                cols = ((matrix.get(fid) or {}).get(form_key) or {}).get(tracer["id"])
+                if not cols:
+                    continue
+                reported += 1
+                for k, v in cols.items():
+                    if k in totals:
+                        totals[k] += v
+            items.append({
+                "id": tracer["id"],
+                "label": tracer["label"],
+                "form": form_key,
+                "totals": {k: _tidy(v) for k, v in totals.items()},
+                "highlight": {k: _tidy(totals.get(k, 0.0))
+                              for k in config.COMMODITY_HIGHLIGHT_KEYS},
+                "facilities_reported": reported,
+                "facilities_tracked": len(facility_ids),
+            })
+        groups.append({
+            "key": grp["key"], "label": grp["label"], "form": form_key,
+            "form_title": grp.get("form_title"), "unit_note": grp.get("unit_note"),
+            "columns": columns,
+            "commodities": items,
+        })
+
+    return jsonify({
+        "period": period,
+        "roster": scope,
+        "scope": scope_obj,
+        "highlight_keys": list(config.COMMODITY_HIGHLIGHT_KEYS),
+        "groups": groups,
+    })
+
+
+@app.get("/api/commodity-facilities")
+def commodity_facilities():
+    """Per-facility consumption & balance detail for ONE tracer commodity."""
+    commodity_id = request.args.get("commodity_id")
+    tracer = _tracer_by_id(commodity_id)
+    if not tracer:
+        return jsonify({"error": "unknown commodity_id"}), 400
+
+    scope, period, rows, counties, scope_obj = _commodity_scope_filter()
+    facility_ids = [r["facility_id"] for r in rows]
+    form_key = tracer["form"]
+    columns = config.COMMODITY_COLUMNS.get(form_key, [])
+    col_keys = [c["key"] for c in columns]
+
+    matrix = khis_client.commodity_scope_matrix(
+        period, facility_ids, counties, forms=[form_key])
+
+    facilities = []
+    for r in rows:
+        cols = ((matrix.get(r["facility_id"]) or {}).get(form_key) or {}).get(tracer["id"]) or {}
+        facilities.append({
+            "facility_id": r["facility_id"],
+            "facility_name": r["facility_name"],
+            "county_name": r["county_name"],
+            "subcounty_name": r["subcounty_name"],
+            "ward_name": r["ward_name"],
+            "values": {k: _tidy(cols.get(k)) for k in col_keys},
+            "reported": bool(cols),
+        })
+    # facilities that reported first, then alphabetical
+    facilities.sort(key=lambda f: (not f["reported"], f["facility_name"].lower()))
+
+    totals = {k: 0.0 for k in col_keys}
+    for f in facilities:
+        for k, v in f["values"].items():
+            if v is not None:
+                totals[k] += v
+
+    return jsonify({
+        "period": period,
+        "roster": scope,
+        "scope": scope_obj,
+        "commodity": {
+            "id": tracer["id"], "label": tracer["label"], "form": form_key,
+            "group": tracer["group"],
+            "form_title": next((g.get("form_title") for g in config.COMMODITY_GROUPS
+                                if g["key"] == tracer["group"]), form_key),
+        },
+        "columns": columns,
+        "highlight_keys": list(config.COMMODITY_HIGHLIGHT_KEYS),
+        "totals": {k: _tidy(v) for k, v in totals.items()},
+        "facilities": facilities,
     })
 
 

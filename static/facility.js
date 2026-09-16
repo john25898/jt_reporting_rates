@@ -51,13 +51,14 @@ async function load() {
   const q = new URLSearchParams(location.search);
   const fid = q.get("facility_id");
   const period = q.get("period") || "202607";
+  const scope = q.get("scope") || "daraja";
   if (!fid) {
     showError("Missing facility_id parameter.");
     return;
   }
   try {
     const res = await fetch(
-      `/api/facility-metrics?facility_id=${encodeURIComponent(fid)}&period=${period}&cb=${Date.now()}`,
+      `/api/facility-metrics?facility_id=${encodeURIComponent(fid)}&period=${period}&scope=${encodeURIComponent(scope)}&cb=${Date.now()}`,
     );
     const d = await res.json();
     render(d);
