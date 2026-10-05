@@ -4,11 +4,11 @@ An **independent** web application that reports facility reporting rates and
 tracer commodity consumption/balances for three MOH datasets from the national
 Kenya HIS (KHIS):
 
-| Form             | Dataset (KHIS)                                                        |
-| ---------------- | --------------------------------------------------------------------- |
-| MOH 643 B - 2023 | Lab / diagnostic commodity consumption (FCDRR)                        |
-| MOH 729 - 2023   | Monthly ART / patient summary                                         |
-| MOH 730 B - 2023 | ARV & OI commodity consumption (CDRR)                                 |
+| Form             | Dataset (KHIS)                                 |
+| ---------------- | ---------------------------------------------- |
+| MOH 643 B - 2023 | Lab / diagnostic commodity consumption (FCDRR) |
+| MOH 729 - 2023   | Monthly ART / patient summary                  |
+| MOH 730 B - 2023 | ARV & OI commodity consumption (CDRR)          |
 
 Reporting rate = **dataset completeness** (actual reports / expected reports)
 computed by KHIS for each facility.
@@ -37,8 +37,8 @@ Open http://localhost:5070
 Two rosters ship with the app; the **Scope** dropdown switches between them and
 every filter, figure and chart re-resolves against the selected roster.
 
-| Scope key | Label                      | Facilities | Counties |
-| --------- | -------------------------- | ---------- | -------- |
+| Scope key | Label                       | Facilities | Counties |
+| --------- | --------------------------- | ---------- | -------- |
 | `daraja`  | Daraja Facilities (default) | 262        | 15       |
 | `jt`      | Jamii Tekelezi Facilities   | 200        | 4        |
 
@@ -70,7 +70,7 @@ with `JT_DEFAULT_SCOPE`, or per request via `?scope=daraja|jt`.
   - ARV tracers (MOH 730 B): TLD 90s / 30s, TAFLD 90s, TDF/FTC 30s, PaLD 90s,
     NVP suspension 100 ml / 240 ml, AZT 300 mg 60s, AZT liquid 100 ml / 240 ml.
   - Laboratory tracers (MOH 643 B): Rapid HIV 1+2 Test 1 / 2 / 3,
-    HIV / Syphilis dual-kit, DBS filter papers (bundles).
+    HIV / Syphilis dual-kit, DBS filter papers (bundles), PPT (pcs).
 
   Figures are **sums across facilities**; each pack size stays a separate
   element so different units are never mixed. Totals are only ever displayed
@@ -84,15 +84,15 @@ with `JT_DEFAULT_SCOPE`, or per request via `?scope=daraja|jt`.
 ### How commodity values are read
 
 Commodity consumption/balances are **not** separate data elements. Each
-commodity is one *row* of the form; the row's columns are
+commodity is one _row_ of the form; the row's columns are
 **categoryOptionCombos** of a supply-chain category combo:
 
-| Dataset | Category combo                     | Combo id      | Columns |
-| ------- | ---------------------------------- | ------------- | ------- |
-| MOH 730B | `MoH 730A revision 2017`          | `Bnu4wQSxChd` | 11      |
-| MOH 643B | `MOH 643 B FCDRR revision 2023`   | `uBarsk8tZ3G` | 13      |
+| Dataset  | Category combo                  | Combo id      | Columns |
+| -------- | ------------------------------- | ------------- | ------- |
+| MOH 730B | `MoH 730A revision 2017`        | `Bnu4wQSxChd` | 11      |
+| MOH 643B | `MOH 643 B FCDRR revision 2023` | `uBarsk8tZ3G` | 13      |
 
-The dataset's own `categoryCombo` is the *attribute* option combo, not the
+The dataset's own `categoryCombo` is the _attribute_ option combo, not the
 column, so it must not be used for this mapping. Column mappings live in
 `config.COMMODITY_COLUMNS`. County-wide `dataValueSets` calls with
 `children=true` fetch every facility in one request per dataset.
@@ -102,15 +102,15 @@ column, so it must not be used for this mapping. Column mappings live in
 All endpoints accept `?scope=daraja|jt`, `?period=YYYYMM` and the hierarchy
 filters `county_id` / `subcounty_id` / `ward_id` / `facility_id`.
 
-| Endpoint | Description |
-| -------- | ----------- |
-| `GET /api/health` | Health check |
-| `GET /api/locations` | Available scopes, filter hierarchy, KHIS reachability, dataset IDs, periods |
-| `GET /api/reporting-rates` | Per-facility expected/actual/rate for all three MOH forms |
-| `GET /api/metrics-summary` | Per-metric reporting coverage for the tracked 2023-version metrics |
-| `GET /api/facility-metrics?facility_id=…` | One facility's per-metric detail |
-| `GET /api/commodities` | Per-tracer totals (consumed + closing balance) and coverage, grouped ARV / LAB |
-| `GET /api/commodity-facilities?commodity_id=…` | Per-facility values for every column of one tracer |
+| Endpoint                                       | Description                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `GET /api/health`                              | Health check                                                                   |
+| `GET /api/locations`                           | Available scopes, filter hierarchy, KHIS reachability, dataset IDs, periods    |
+| `GET /api/reporting-rates`                     | Per-facility expected/actual/rate for all three MOH forms                      |
+| `GET /api/metrics-summary`                     | Per-metric reporting coverage for the tracked 2023-version metrics             |
+| `GET /api/facility-metrics?facility_id=…`      | One facility's per-metric detail                                               |
+| `GET /api/commodities`                         | Per-tracer totals (consumed + closing balance) and coverage, grouped ARV / LAB |
+| `GET /api/commodity-facilities?commodity_id=…` | Per-facility values for every column of one tracer                             |
 
 ## Structure
 

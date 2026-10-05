@@ -241,6 +241,8 @@ COMMODITY_TRACERS = [
      "label": "HIV / Syphilis dual-kit"},
     {"group": "LAB", "form": "moh643", "id": "eTEGUNOJeFJ",
      "label": "DBS filter papers (bundles)"},
+    {"group": "LAB", "form": "moh643", "id": "VUWQsiqJkBe",
+     "label": "PPT — pcs"},
 ]
 
 # {(form, de_id): tracer dict} and {form: {coc_id: column_key}}
