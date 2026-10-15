@@ -1209,3 +1209,66 @@ tr.frow:hover td {
   background: var(--border);
   color: var(--muted);
 }
+
+/* ---------------------------------------------------------------------------
+   table-export.js — download toolbar shown above every table
+--------------------------------------------------------------------------- */
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.tt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  color: var(--blue-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tt-btn:hover {
+  background: #e8f2fb;
+  border-color: var(--blue);
+}
+.tt-btn:active {
+  transform: translateY(1px);
+}
+.tt-btn[data-kind="xlsx"] {
+  color: var(--green);
+}
+.tt-btn[data-kind="xlsx"]:hover {
+  background: #eaf6ee;
+  border-color: var(--green);
+}
+.btn.btn-ghost {
+  background: #fff;
+  color: var(--blue-dark);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+.btn.btn-ghost:hover {
+  background: #e8f2fb;
+}
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filter-meta .btn.btn-ghost {
+  border-color: var(--border);
+}
+@media (max-width: 640px) {
+  .table-toolbar {
+    justify-content: flex-start;
+  }
+}

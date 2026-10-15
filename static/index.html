@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Jamii Tekelezi — Facility Reporting Rates</title>
-    <link rel="stylesheet" href="styles.css?v=17" />
+    <title>Jamii Tekelezi â€” Facility Reporting Rates</title>
+    <link rel="stylesheet" href="styles.css?v=18" />
   </head>
   <body>
     <header class="app-header">
@@ -12,9 +12,9 @@
         <div class="brand">
           <span class="brand-mark">JT</span>
           <div>
-            <h1>Daraja &amp; Jamii Tekelezi — Facility Reporting Rates</h1>
+            <h1>Daraja &amp; Jamii Tekelezi â€” Facility Reporting Rates</h1>
             <p class="subtitle">
-              MOH 643 B - 2023 · MOH 729 - 2023 · MOH 730 B - 2023 &nbsp;|&nbsp;
+              MOH 643 B - 2023 Â· MOH 729 - 2023 Â· MOH 730 B - 2023 &nbsp;|&nbsp;
               Version 2023 metrics + tracer consumption &amp; balances
             </p>
           </div>
@@ -63,8 +63,10 @@
           </label>
         </div>
         <div class="filter-meta">
-          <span id="scope-summary">Loading…</span>
-          <button id="refresh-btn" class="btn">⟳ Refresh</button>
+          <span id="scope-summary">Loadingâ€¦</span>
+          <div class="filter-actions">
+            <button id="refresh-btn" class="btn">âŸ³ Refresh</button>
+          </div>
         </div>
       </section>
 
@@ -79,7 +81,7 @@
       <!-- Loading -->
       <div id="loading" class="loading hidden">
         <div class="spinner"></div>
-        <span>Fetching reporting rates from KHIS…</span>
+        <span>Fetching reporting rates from KHISâ€¦</span>
       </div>
 
       <!-- Overview tab -->
@@ -95,7 +97,7 @@
             <h3>
               Facilities in current scope
               <span class="muted small"
-                >— click a row for its metric detail</span
+                >â€” click a row for its metric detail</span
               >
             </h3>
           </div>
@@ -103,10 +105,13 @@
             id="fac-search"
             class="fac-search"
             type="search"
-            placeholder="Search facility or county…"
+            placeholder="Search facility or countyâ€¦"
           />
           <div class="fac-scroll">
-            <table class="rate-table fac-table">
+            <table
+              class="rate-table fac-table"
+              data-export-name="Facilities in current scope"
+            >
               <thead>
                 <tr>
                   <th>Facility</th>
@@ -130,11 +135,12 @@
     </main>
 
     <footer class="app-footer">
-      Daraja &amp; Jamii Tekelezi Reporting Rates — independent reporting
-      dashboard · Data source: Kenya HIS (KHIS) dataset completeness, MOH 730B
+      Daraja &amp; Jamii Tekelezi Reporting Rates â€” independent reporting
+      dashboard Â· Data source: Kenya HIS (KHIS) dataset completeness, MOH 730B
       (ARVs) &amp; MOH 643B (lab) commodity returns
     </footer>
 
-    <script src="app.js?v=17"></script>
+    <script src="table-export.js?v=2"></script>
+    <script src="app.js?v=18"></script>
   </body>
 </html>

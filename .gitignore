@@ -4,5 +4,8 @@ __pycache__/
 cache/
 logs/
 .venv/
-_probe_assignments.py
-_probe_values.py
+
+# Scratch probes / scratch notes (never part of the app)
+_probe_*.py
+_probe_*.txt
+ubun.txt

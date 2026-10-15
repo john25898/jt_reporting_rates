@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Facility — Metric Reporting | Jamii Tekelezi</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Facility â€” Metric Reporting | Jamii Tekelezi</title>
+    <link rel="stylesheet" href="styles.css?v=18" />
   </head>
   <body>
     <header class="app-header">
@@ -13,26 +13,29 @@
           <span class="brand-mark">JT</span>
           <div>
             <h1 id="fac-title">Facility Metric Reporting</h1>
-            <p class="subtitle" id="fac-sub">Loading…</p>
+            <p class="subtitle" id="fac-sub">Loadingâ€¦</p>
           </div>
         </div>
-        <div id="status-banner" class="status-banner hidden"></div>
+        <div class="filter-actions">
+          <div id="status-banner" class="status-banner hidden"></div>
+        </div>
       </div>
     </header>
 
     <main class="container">
       <div id="loading" class="loading">
         <div class="spinner"></div>
-        <span>Fetching metric reporting from KHIS…</span>
+        <span>Fetching metric reporting from KHISâ€¦</span>
       </div>
       <section id="facility-body"></section>
     </main>
 
     <footer class="app-footer">
-      Jamii Tekelezi Reporting Rates — per-metric facility reporting · Version
-      2023 metrics only
+      Jamii Tekelezi Reporting Rates â€” per-metric facility reporting Â·
+      Version 2023 metrics only
     </footer>
 
-    <script src="facility.js?v=16"></script>
+    <script src="table-export.js?v=2"></script>
+    <script src="facility.js?v=17"></script>
   </body>
 </html>

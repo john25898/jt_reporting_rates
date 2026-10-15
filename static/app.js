@@ -892,7 +892,7 @@ function renderCountyMatrix(d) {
         <h3>By county <span class="muted small">— reporting rate per form · click a county to zoom into it</span></h3>
       </div>
       <div class="county-viz">${vizRows}</div>
-      <table class="rate-table county-table">
+      <table class="rate-table county-table" data-export-name="Reporting rate by county">
         <thead><tr>
           <th>County</th><th class="num">Facilities</th>
           ${d.forms.map((f) => `<th class="num">${badge(f.key)}</th>`).join("")}
@@ -970,7 +970,8 @@ function renderFacilityList(d) {
                   : cls === "miss"
                     ? "expected, not reported"
                     : "not assigned";
-              return `<td class="num"><span class="fdot ${cls}" title="${badge(form.key)}: ${title}">${mark}</span></td>`;
+              const plain = cls === "ok" ? "Yes" : cls === "miss" ? "No" : "";
+              return `<td class="num" data-export="${plain}"><span class="fdot ${cls}" title="${badge(form.key)}: ${title}">${mark}</span></td>`;
             })
             .join("");
           const pill =
@@ -978,8 +979,8 @@ function renderFacilityList(d) {
               ? `<span class="pill mute">Unassigned</span>`
               : f.reported === f.expected
                 ? f.expected >= 3
-                  ? `<span class="pill ok">All 3 ✓</span>`
-                  : `<span class="pill ok">${f.reported}/${f.expected} ✓</span>`
+                  ? `<span class="pill ok">All 3 <span data-export-skip>✓</span></span>`
+                  : `<span class="pill ok">${f.reported}/${f.expected} <span data-export-skip>✓</span></span>`
                 : f.reported > 0
                   ? `<span class="pill warn-pill">${f.reported}/${f.expected} forms</span>`
                   : `<span class="pill bad">None</span>`;
@@ -1036,7 +1037,7 @@ function renderMhoSection(key, form) {
     <div class="card">
       <h3>${form.title} — Facility detail <span class="muted small">(${fmtMonth(state.period)} period)</span></h3>
       <p class="muted small hint">Click any facility row to open its per-metric reporting page.</p>
-      <table class="rate-table">
+      <table class="rate-table" data-export-name="${escapeHtml(form.title)} — facility detail">
         <thead><tr>
           <th data-sort="facility_name">Facility</th>
           <th data-sort="county_name">County</th>
@@ -1194,8 +1195,8 @@ function renderMetricCards(key, mf) {
       </div>
       <details class="metric-coverage" open>
         <summary>Per-metric coverage <span class="muted small">(${(mf.metrics || []).length} metrics)</span></summary>
-        <table class="metric-table coverage-table">
-          <thead><tr><th>Metric</th><th class="num">Facilities reported</th><th class="num">Coverage</th><th>Bar</th></tr></thead>
+        <table class="metric-table coverage-table" data-export-name="Per-metric coverage v${escapeHtml(mf.version || "")}">
+          <thead><tr><th>Metric</th><th class="num">Facilities reported</th><th class="num">Coverage</th><th data-export-skip>Bar</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </details>
@@ -1425,7 +1426,7 @@ function renderCommodityFacilityTable() {
         )
         .join("");
       return `<tr class="${f.reported ? "" : "row-muted"}">
-        <td class="fac-name">${escapeHtml(f.facility_name)}<span class="muted small"> · ${escapeHtml(f.subcounty_name || "")}, ${escapeHtml(f.county_name || "")}</span></td>
+        <td class="fac-name">${escapeHtml(f.facility_name)}<span class="muted small" data-export-skip> · ${escapeHtml(f.subcounty_name || "")}, ${escapeHtml(f.county_name || "")}</span></td>
         ${tds}
         <td class="num">${f.reported ? '<span class="pill ok">reported</span>' : '<span class="pill none">no data</span>'}</td>
       </tr>`;
@@ -1444,7 +1445,10 @@ function renderCommodityFacilityTable() {
         <span class="muted small">Every facility in scope, facilities that reported first. Consumption and closing balance are highlighted. Totals sum across facilities.</span>
       </div>
       <div class="table-scroll">
-        <table class="metric-table tracer-table">
+        <table
+          class="metric-table tracer-table"
+          data-export-name="${escapeHtml((d.commodity || {}).label || "Tracer")} — per-facility detail — ${fmtMonth(d.period)} · ${escapeHtml((d.commodity || {}).form_title || "")}"
+        >
           <thead><tr><th>Facility</th>${head}<th class="num">Status</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="99" class="muted">No facilities reported this commodity for the selected month and scope.</td></tr>'}</tbody>
           <tfoot><tr><td>Scope total</td>${totTds}<td class="num">${(d.facilities || []).filter((f) => f.reported).length} reported</td></tr></tfoot>

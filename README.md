@@ -80,6 +80,39 @@ with `JT_DEFAULT_SCOPE`, or per request via `?scope=daraja|jt`.
   renders cached data if KHIS is down or slow. Dataset IDs are auto-resolved
   from KHIS by name and cached for 7 days. A failed KHIS call is never cached,
   so a transient outage cannot freeze a false "no data".
+- **Download any table** (CSV or Excel): every table on every page carries a
+  small `⤓ CSV` / `⤓ Excel` toolbar, and pages with more than one table also
+  get an `⤓ All tables` button that writes a single workbook with one sheet per
+  table. Exports are generated entirely in the browser — no libraries, no build
+  step, no server round-trip — and reflect the filters currently on screen
+  (scope, month, search box), so what you see is what you download.
+  Excel files carry the table title, the period/scope subtitle, a frozen header
+  row and an auto-filter; the highlighted consumption / closing-balance columns
+  (and the red "needs attention" rate cells) keep their fill so the exported
+  sheet still reads like the screen.
+
+  See [Downloading tables](#downloading-tables) for the per-table opt-outs.
+
+### Downloading tables
+
+The toolbar is attached automatically to every `<table>` (a `MutationObserver`
+re-scans as the app renders), so new tables get it for free. `TableExport` is
+also exposed on `window` for scripting:
+
+```js
+TableExport.downloadTable(document.querySelector("table"), "csv");
+TableExport.downloadAllTables();
+```
+
+Optional attributes let a table describe itself to the exporter:
+
+| Attribute          | On        | Effect                                                          |
+| ------------------ | --------- | --------------------------------------------------------------- |
+| `data-export-name` | `<table>` | file name and Excel sheet title (else nearest `<h2>`/`<h3>`)    |
+| `data-export-sub`  | `<table>` | subtitle line written under the title in Excel                  |
+| `data-export-skip` | `<th>`    | drops that entire column (for visual-only bars)                 |
+| `data-export-skip` | any node  | drops just that node's text (icons, pills, "· county" suffixes) |
+| `data-export`      | `<td>`    | replaces the cell's value outright (e.g. `✓` → `Yes`)           |
 
 ### How commodity values are read
 
@@ -126,6 +159,7 @@ jt_reporting_rates/
 │   ├── index.html
 │   ├── app.js
 │   ├── styles.css
+│   ├── table-export.js      # CSV / Excel download layer for every table
 │   ├── facility.html
 │   └── facility.js
 ├── cache/            # disk cache (dataset IDs, rates, bulk values, commodities)

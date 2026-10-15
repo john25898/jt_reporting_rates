@@ -174,7 +174,7 @@ function renderForm(fm) {
       ${
         total
           ? `
-      <table class="metric-table coverage-table">
+      <table class="metric-table coverage-table" data-export-name="${escapeHtml(fm.title)} — metric values v${escapeHtml(fm.version || "")}">
         <thead><tr><th>Metric</th><th class="num">Value</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
